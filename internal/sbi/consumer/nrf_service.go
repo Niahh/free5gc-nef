@@ -185,7 +185,7 @@ func (s *nnrfService) buildNfProfile() (*models.NfProfile, error) {
 }
 
 func (s *nnrfService) DeregisterNFInstance() error {
-	logger.ConsumerLog.Infof("DeregisterNFInstance")
+	logger.ConsumerLog.Infof("[NEF] Send Deregister NFInstance")
 
 	ctx, _, err := s.consumer.Context().GetTokenCtx(models.ServiceName_NNRF_NFM, models.NfType_NRF)
 	if err != nil {

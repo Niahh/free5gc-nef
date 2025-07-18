@@ -1,18 +1,22 @@
 package main
 
 import (
-	"fmt"
+	"context"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"runtime/debug"
+	"syscall"
 
 	"github.com/free5gc/nef/internal/logger"
-	nefapp "github.com/free5gc/nef/pkg/app"
 	"github.com/free5gc/nef/pkg/factory"
+	"github.com/free5gc/nef/pkg/service"
 	logger_util "github.com/free5gc/util/logger"
 	"github.com/free5gc/util/version"
 	"github.com/urfave/cli/v2"
 )
+
+var NEF *service.NefApp
 
 func main() {
 	defer func() {
@@ -52,19 +56,29 @@ func action(cliCtx *cli.Context) error {
 
 	logger.MainLog.Infoln("NEF version: ", version.GetVersion())
 
+	ctx, cancel := context.WithCancel(context.Background())
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+
+	go func() {
+		<-sigCh // Wait for interrupt signal to gracefully shutdown
+		logger.MainLog.Infof("Shutdown NEF ...")
+		cancel() // Notify each goroutine and wait them stopped
+	}()
+
 	cfg, err := factory.ReadConfig(cliCtx.String("config"))
 	if err != nil {
+		sigCh <- nil
 		return err
 	}
 
-	nef, err := nefapp.NewApp(cfg, tlsKeyLogPath)
+	nef, err := service.NewApp(ctx, cfg, tlsKeyLogPath)
 	if err != nil {
-		return fmt.Errorf("new NEF err: %+v", err)
+		sigCh <- nil
+		return err
 	}
-
-	if err := nef.Run(); err != nil {
-		return nil
-	}
+	NEF = nef
+	NEF.Start()
 
 	return nil
 }
