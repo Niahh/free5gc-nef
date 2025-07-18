@@ -2,6 +2,11 @@ package service
 
 import (
 	"context"
+	"io"
+	"os"
+	"runtime/debug"
+	"sync"
+
 	nef_context "github.com/free5gc/nef/internal/context"
 	"github.com/free5gc/nef/internal/logger"
 	"github.com/free5gc/nef/internal/sbi"
@@ -9,11 +14,10 @@ import (
 	"github.com/free5gc/nef/internal/sbi/notifier"
 	"github.com/free5gc/nef/internal/sbi/processor"
 	"github.com/free5gc/nef/pkg/factory"
+	"github.com/free5gc/util/metrics"
+	"github.com/free5gc/util/metrics/utils"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
-	"io"
-	"os"
-	"runtime/debug"
-	"sync"
 )
 
 var NEF *NefApp
@@ -26,10 +30,11 @@ type NefApp struct {
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
 
-	consumer  *consumer.Consumer
-	notifier  *notifier.Notifier
-	proc      *processor.Processor
-	sbiServer *sbi.Server
+	consumer      *consumer.Consumer
+	notifier      *notifier.Notifier
+	proc          *processor.Processor
+	sbiServer     *sbi.Server
+	metricsServer *metrics.Server
 }
 
 func NewApp(ctx context.Context, cfg *factory.Config, tlsKeyLogPath string) (*NefApp, error) {
@@ -62,9 +67,36 @@ func NewApp(ctx context.Context, cfg *factory.Config, tlsKeyLogPath string) (*Ne
 		return nil, err
 	}
 
+	features := map[utils.MetricTypeEnabled]bool{}
+	customMetrics := make(map[utils.MetricTypeEnabled][]prometheus.Collector)
+	if cfg.AreMetricsEnabled() {
+		if nef.metricsServer, err = metrics.NewServer(
+			getInitMetrics(cfg, features, customMetrics), tlsKeyLogPath, logger.InitLog); err != nil {
+			return nil, err
+		}
+	}
+
 	NEF = nef
 
 	return nef, nil
+}
+
+func getInitMetrics(
+	cfg *factory.Config, features map[utils.MetricTypeEnabled]bool,
+	customMetrics map[utils.MetricTypeEnabled][]prometheus.Collector,
+) metrics.InitMetrics {
+	metricsInfo := metrics.Metrics{
+		BindingIPv4: cfg.GetMetricsBindingAddr(),
+		Scheme:      cfg.GetMetricsScheme(),
+		Namespace:   cfg.GetMetricsNamespace(),
+		Port:        cfg.GetMetricsPort(),
+		Tls: metrics.Tls{
+			Key: cfg.GetMetricsCertKeyPath(),
+			Pem: cfg.GetMetricsCertPemPath(),
+		},
+	}
+
+	return metrics.NewInitMetrics(metricsInfo, "nef", features, customMetrics)
 }
 
 func (a *NefApp) Config() *factory.Config {
@@ -166,6 +198,12 @@ func (a *NefApp) Start() {
 		logger.MainLog.Fatalf("Run SBI server failed: %+v", err)
 	}
 
+	if a.cfg.AreMetricsEnabled() && a.metricsServer != nil {
+		go func() {
+			a.metricsServer.Run(&a.wg)
+		}()
+	}
+
 	a.WaitRoutineStopped()
 }
 
@@ -198,5 +236,10 @@ func (a *NefApp) terminateProcedure() {
 func (a *NefApp) CallServersStop() {
 	if a.sbiServer != nil {
 		a.sbiServer.Stop()
+	}
+
+	if a.metricsServer != nil {
+		a.metricsServer.Stop()
+		logger.MainLog.Infof("NEF Metrics Server terminated")
 	}
 }

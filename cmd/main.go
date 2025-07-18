@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"github.com/free5gc/nef/pkg/service"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -11,6 +10,7 @@ import (
 
 	"github.com/free5gc/nef/internal/logger"
 	"github.com/free5gc/nef/pkg/factory"
+	"github.com/free5gc/nef/pkg/service"
 	logger_util "github.com/free5gc/util/logger"
 	"github.com/free5gc/util/version"
 	"github.com/urfave/cli/v2"
