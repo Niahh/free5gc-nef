@@ -1,12 +1,16 @@
 package sbi
 
 import (
+	"context"
+	"errors"
 	"fmt"
+	"github.com/free5gc/nef/internal/sbi/consumer"
+	"github.com/free5gc/nef/pkg/app"
 	"net/http"
 	"runtime/debug"
 	"sync"
+	"time"
 
-	nef_context "github.com/free5gc/nef/internal/context"
 	"github.com/free5gc/nef/internal/logger"
 	"github.com/free5gc/nef/internal/sbi/processor"
 	"github.com/free5gc/nef/pkg/factory"
@@ -44,22 +48,24 @@ func applyEndpoints(group *gin.RouterGroup, endpoints []Endpoint) {
 	}
 }
 
-type nef interface {
-	Context() *nef_context.NefContext
-	Config() *factory.Config
+type ServerNef interface {
+	app.App
+
+	Consumer() *consumer.Consumer
 	Processor() *processor.Processor
+	CancelContext() context.Context
 }
 
 type Server struct {
-	nef
+	ServerNef
 
 	httpServer *http.Server
 	router     *gin.Engine
 }
 
-func NewServer(nef nef, tlsKeyLogPath string) (*Server, error) {
+func NewServer(nef ServerNef, tlsKeyLogPath string) (*Server, error) {
 	s := &Server{
-		nef: nef,
+		ServerNef: nef,
 	}
 
 	s.router = logger_util.NewGinWithLogrus(logger.GinLog)
@@ -108,15 +114,24 @@ func NewServer(nef nef, tlsKeyLogPath string) (*Server, error) {
 }
 
 func (s *Server) Run(wg *sync.WaitGroup) error {
+	if err := s.Consumer().RegisterNFInstance(); err != nil {
+		logger.InitLog.Errorf("NEF register to NRF Error[%s]", err.Error())
+		return err
+	}
+
 	wg.Add(1)
 	go s.startServer(wg)
 	return nil
 }
 
 func (s *Server) Stop() {
+	const defaultShutdownTimeout time.Duration = 2 * time.Second
+
 	if s.httpServer != nil {
 		logger.SBILog.Infof("Stop SBI server (listen on %s)", s.httpServer.Addr)
-		if err := s.httpServer.Close(); err != nil {
+		toCtx, cancel := context.WithTimeout(context.Background(), defaultShutdownTimeout)
+		defer cancel()
+		if err := s.httpServer.Shutdown(toCtx); err != nil {
 			logger.SBILog.Errorf("Could not close SBI server: %#v", err)
 		}
 	}
@@ -127,6 +142,7 @@ func (s *Server) startServer(wg *sync.WaitGroup) {
 		if p := recover(); p != nil {
 			// Print stack for panic to log. Fatalf() will let program exit.
 			logger.SBILog.Fatalf("panic: %v\n%s", p, string(debug.Stack()))
+			s.Terminate()
 		}
 
 		wg.Done()
@@ -135,17 +151,19 @@ func (s *Server) startServer(wg *sync.WaitGroup) {
 	logger.SBILog.Infof("Start SBI server (listen on %s)", s.httpServer.Addr)
 
 	var err error
-	scheme := s.Config().SbiScheme()
+	cfg := s.Config()
+	scheme := cfg.SbiScheme()
 	if scheme == "http" {
 		err = s.httpServer.ListenAndServe()
 	} else if scheme == "https" {
-		// TODO: use config file to config path
-		err = s.httpServer.ListenAndServeTLS(s.Config().TLSPemPath(), s.Config().TLSKeyPath())
+		err = s.httpServer.ListenAndServeTLS(
+			cfg.TLSPemPath(),
+			cfg.TLSKeyPath())
 	} else {
 		err = fmt.Errorf("No support this scheme[%s]", scheme)
 	}
 
-	if err != nil && err != http.ErrServerClosed {
+	if err != nil && !errors.Is(err, http.ErrServerClosed) {
 		logger.SBILog.Errorf("SBI server error: %+v", err)
 	}
 	logger.SBILog.Warnf("SBI server (listen on %s) stopped", s.httpServer.Addr)
