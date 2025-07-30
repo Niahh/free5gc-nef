@@ -2,11 +2,11 @@ package context
 
 import (
 	"fmt"
+	"github.com/free5gc/openapi/models_nef"
 	"strconv"
 	"sync"
 
 	"github.com/free5gc/nef/internal/logger"
-	"github.com/free5gc/openapi/models_nef"
 	"github.com/sirupsen/logrus"
 )
 

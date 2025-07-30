@@ -343,7 +343,7 @@ func (c *Config) ServiceList() []Service {
 	return nil
 }
 
-func (c *Config) TLSPemPath() string {
+func (c *Config) GetCertPemPath() string {
 	c.RLock()
 	defer c.RUnlock()
 
@@ -353,7 +353,7 @@ func (c *Config) TLSPemPath() string {
 	return NefDefaultCertPemPath
 }
 
-func (c *Config) TLSKeyPath() string {
+func (c *Config) GetCertKeyPath() string {
 	c.RLock()
 	defer c.RUnlock()
 

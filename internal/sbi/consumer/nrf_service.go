@@ -108,7 +108,7 @@ func (s *nnrfService) getNFManagementClient(uri string) *Nnrf_NFManagement.APICl
 	}
 }
 
-func (s *nnrfService) RegisterNFInstance() error {
+func (s *nnrfService) RegisterNFInstance(ctx context.Context) error {
 	var rsp *http.Response
 	var nf models.NfProfile
 	var err error
@@ -120,51 +120,56 @@ func (s *nnrfService) RegisterNFInstance() error {
 	}
 
 	for {
-		nf, rsp, err = client.NFInstanceIDDocumentApi.RegisterNFInstance(
-			context.TODO(), s.consumer.Context().NfInstID(), *nfProfile)
-		if rsp != nil && rsp.Body != nil {
-			if bodyCloseErr := rsp.Body.Close(); bodyCloseErr != nil {
-				logger.ConsumerLog.Errorf("response body cannot close: %+v", bodyCloseErr)
-			}
-		}
-
-		if err != nil || rsp == nil {
-			logger.ConsumerLog.Infof("NEF register to NRF Error[%v], sleep 2s and retry", err)
-			time.Sleep(RetryRegisterNrfDuration)
-			continue
-		}
-
-		status := rsp.StatusCode
-		if status == http.StatusOK {
-			// NFUpdate
-			logger.ConsumerLog.Infof("NFRegister Update")
-			break
-		} else if status == http.StatusCreated {
-			// NFRegister
-			resourceUri := rsp.Header.Get("Location")
-			// resouceNrfUri := resourceUri[:strings.Index(resourceUri, "/nnrf-nfm/")]
-			s.consumer.Context().SetNfInstID(resourceUri[strings.LastIndex(resourceUri, "/")+1:])
-
-			oauth2 := false
-			if nf.CustomInfo != nil {
-				v, ok := nf.CustomInfo["oauth2"].(bool)
-				if ok {
-					oauth2 = v
-					logger.MainLog.Infoln("OAuth2 setting receive from NRF:", oauth2)
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("registration cancelled due to context cancellation")
+		default:
+			nf, rsp, err = client.NFInstanceIDDocumentApi.RegisterNFInstance(
+				context.TODO(), s.consumer.Context().NfInstID(), *nfProfile)
+			if rsp != nil && rsp.Body != nil {
+				if bodyCloseErr := rsp.Body.Close(); bodyCloseErr != nil {
+					logger.ConsumerLog.Errorf("response body cannot close: %+v", bodyCloseErr)
 				}
 			}
-			s.consumer.Context().OAuth2Required = oauth2
-			if oauth2 && s.consumer.Context().Config().NrfCertPem() == "" {
-				logger.CfgLog.Error("OAuth2 enable but no nrfCertPem provided in config.")
+
+			if err != nil || rsp == nil {
+				logger.ConsumerLog.Infof("NEF register to NRF Error[%v], sleep 2s and retry", err)
+				time.Sleep(RetryRegisterNrfDuration)
+				continue
 			}
 
-			logger.ConsumerLog.Infof("NFRegister Created")
-			break
-		} else {
-			logger.ConsumerLog.Infof("NRF return wrong status: %d", status)
+			status := rsp.StatusCode
+			switch status {
+			case http.StatusOK:
+				// NFUpdate
+				logger.ConsumerLog.Infof("NFRegister Update")
+				return nil
+			case http.StatusCreated:
+				// NFRegister
+				resourceUri := rsp.Header.Get("Location")
+				// resouceNrfUri := resourceUri[:strings.Index(resourceUri, "/nnrf-nfm/")]
+				s.consumer.Context().SetNfInstID(resourceUri[strings.LastIndex(resourceUri, "/")+1:])
+
+				oauth2 := false
+				if nf.CustomInfo != nil {
+					v, ok := nf.CustomInfo["oauth2"].(bool)
+					if ok {
+						oauth2 = v
+						logger.MainLog.Infoln("OAuth2 setting receive from NRF:", oauth2)
+					}
+				}
+				s.consumer.Context().OAuth2Required = oauth2
+				if oauth2 && s.consumer.Context().Config().NrfCertPem() == "" {
+					logger.CfgLog.Error("OAuth2 enable but no nrfCertPem provided in config.")
+				}
+
+				logger.ConsumerLog.Infof("NFRegister Created")
+				return nil
+			default:
+				logger.ConsumerLog.Infof("NRF return wrong status: %d", status)
+			}
 		}
 	}
-	return nil
 }
 
 func (s *nnrfService) buildNfProfile() (*models.NfProfile, error) {

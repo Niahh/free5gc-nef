@@ -5,6 +5,7 @@ import (
 
 	nef_context "github.com/free5gc/nef/internal/context"
 	"github.com/free5gc/nef/internal/logger"
+	"github.com/free5gc/nef/pkg/app"
 	"github.com/free5gc/nef/pkg/factory"
 	"github.com/free5gc/openapi"
 	"github.com/free5gc/openapi/Nnrf_NFDiscovery"
@@ -15,6 +16,8 @@ import (
 )
 
 type nef interface {
+	app.App
+
 	Context() *nef_context.NefContext
 	Config() *factory.Config
 }

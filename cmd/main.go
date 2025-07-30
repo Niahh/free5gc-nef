@@ -1,14 +1,17 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"runtime/debug"
+	"syscall"
 
 	"github.com/free5gc/nef/internal/logger"
-	nefapp "github.com/free5gc/nef/pkg/app"
 	"github.com/free5gc/nef/pkg/factory"
+	nefapp "github.com/free5gc/nef/pkg/service"
 	logger_util "github.com/free5gc/util/logger"
 	"github.com/free5gc/util/version"
 	"github.com/urfave/cli/v2"
@@ -52,17 +55,26 @@ func action(cliCtx *cli.Context) error {
 
 	logger.MainLog.Infoln("NEF version: ", version.GetVersion())
 
+	ctx, cancel := context.WithCancel(context.Background())
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+
+	go func() {
+		<-sigCh
+		cancel()
+	}()
+
 	cfg, err := factory.ReadConfig(cliCtx.String("config"))
 	if err != nil {
 		return err
 	}
 
-	nef, err := nefapp.NewApp(cfg, tlsKeyLogPath)
+	nef, err := nefapp.NewApp(ctx, cfg, tlsKeyLogPath)
 	if err != nil {
 		return fmt.Errorf("new NEF err: %+v", err)
 	}
 
-	if err := nef.Run(); err != nil {
+	if err := nef.Start(); err != nil {
 		return nil
 	}
 
