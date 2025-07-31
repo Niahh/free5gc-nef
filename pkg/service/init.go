@@ -15,6 +15,7 @@ import (
 	"github.com/free5gc/nef/internal/sbi/processor"
 	"github.com/free5gc/nef/pkg/app"
 	"github.com/free5gc/nef/pkg/factory"
+	"github.com/free5gc/openapi/models"
 	"github.com/sirupsen/logrus"
 )
 
@@ -51,13 +52,13 @@ func NewApp(
 	nef.SetReportCaller(cfg.GetLogReportCaller())
 
 	nef.ctx, nef.cancel = context.WithCancel(ctx)
-	if nef.nefCtx, err = nef_context.NewContext(nef); err != nil {
-		return nil, err
-	}
+	nef.nefCtx = nef_context.GetSelf()
+	nef_context.InitNefContext(nef.nefCtx, cfg)
+
 	if nef.consumer, err = consumer.NewConsumer(nef); err != nil {
 		return nil, err
 	}
-	if nef.notifier, err = notifier.NewNotifier(); err != nil {
+	if nef.notifier, err = notifier.NewNotifier(nef.nefCtx); err != nil {
 		return nil, err
 	}
 	if nef.proc, err = processor.NewProcessor(nef); err != nil {
@@ -149,11 +150,22 @@ func (a *NefApp) Start() error {
 	 * context */
 	go a.listenShutdownEvent()
 
-	if err := a.sbiServer.Run(&a.wg); err != nil {
-		return err
+	var profile models.NrfNfManagementNfProfile
+	if profileTmp, errBuildNfInstance := a.Consumer().BuildNFInstance(a.Context()); errBuildNfInstance != nil {
+		logger.InitLog.Error("Build NEF Profile Error")
+	} else {
+		profile = profileTmp
 	}
 
-	if err := a.consumer.RegisterNFInstance(a.ctx); err != nil {
+	_, nfId, err_reg := a.Consumer().SendRegisterNFInstance(
+		a.ctx, a.Context().GetNrfUri(), a.Context().GetNfInstID(), &profile)
+	if err_reg != nil {
+		logger.InitLog.Warnf("Send Register NF Instance failed: %+v", err_reg)
+	} else {
+		a.Context().SetNfInstID(nfId)
+	}
+
+	if err := a.sbiServer.Run(&a.wg); err != nil {
 		return err
 	}
 
@@ -182,11 +194,14 @@ func (a *NefApp) terminateProcedure() {
 		a.sbiServer.Terminate()
 	}
 
-	// deregister with NRF
-	if err := a.consumer.DeregisterNFInstance(); err != nil {
-		logger.MainLog.Error(err)
+	problemDetails, err_deg := a.Consumer().SendDeregisterNFInstance()
+
+	if problemDetails != nil {
+		logger.MainLog.Errorf("Deregister NF instance Failed Problem[%+v]", problemDetails)
+	} else if err_deg != nil {
+		logger.MainLog.Errorf("Deregister NF instance Error[%+v]", err_deg)
 	} else {
-		logger.MainLog.Infof("Deregister from NRF successfully")
+		logger.MainLog.Infof("[NEF] Deregister from NRF successfully")
 	}
 }
 

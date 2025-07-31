@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/free5gc/openapi/models"
-	"github.com/free5gc/openapi/models_nef"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
@@ -15,7 +14,7 @@ import (
 )
 
 var (
-	tiSub1ForAf1 = models_nef.TrafficInfluSub{
+	tiSub1ForAf1 = models.NefTrafficInfluSub{
 		AfServiceId: "Service1",
 		AfAppId:     "App1",
 		Dnn:         "internet",
@@ -32,7 +31,7 @@ var (
 				},
 			},
 		},
-		TrafficRoutes: []models.RouteToLocation{
+		TrafficRoutes: []*models.RouteToLocation{
 			{
 				Dnai: "mec",
 				RouteInfo: &models.RouteInformation{
@@ -43,7 +42,7 @@ var (
 		},
 	}
 
-	tiSub2ForAf1 = models_nef.TrafficInfluSub{
+	tiSub2ForAf1 = models.NefTrafficInfluSub{
 		AfServiceId: "Service2",
 		AfAppId:     "App2",
 		Dnn:         "internet",
@@ -60,7 +59,7 @@ var (
 				},
 			},
 		},
-		TrafficRoutes: []models.RouteToLocation{
+		TrafficRoutes: []*models.RouteToLocation{
 			{
 				Dnai: "mec",
 				RouteInfo: &models.RouteInformation{
@@ -71,7 +70,7 @@ var (
 		},
 	}
 
-	tiSub3ForAf1 = models_nef.TrafficInfluSub{
+	tiSub3ForAf1 = models.NefTrafficInfluSub{
 		AfServiceId: "Service3",
 		AfAppId:     "App3",
 		Dnn:         "internet",
@@ -88,7 +87,7 @@ var (
 				},
 			},
 		},
-		TrafficRoutes: []models.RouteToLocation{
+		TrafficRoutes: []*models.RouteToLocation{
 			{
 				Dnai: "mec",
 				RouteInfo: &models.RouteInformation{
@@ -99,7 +98,7 @@ var (
 		},
 	}
 
-	tiSub4ForAf1 = models_nef.TrafficInfluSub{
+	tiSub4ForAf1 = models.NefTrafficInfluSub{
 		AfServiceId: "Service4",
 		Dnn:         "internet",
 		Snssai: &models.Snssai{
@@ -109,7 +108,7 @@ var (
 		Ipv4Addr: "10.60.0.10",
 	}
 
-	tiSub5ForAf1 = models_nef.TrafficInfluSub{
+	tiSub5ForAf1 = models.NefTrafficInfluSub{
 		AfServiceId: "Service5",
 		AfAppId:     "App5",
 		TrafficFilters: []models.FlowInfo{
@@ -120,7 +119,7 @@ var (
 				},
 			},
 		},
-		TrafficRoutes: []models.RouteToLocation{
+		TrafficRoutes: []*models.RouteToLocation{
 			{
 				Dnai: "mec",
 				RouteInfo: &models.RouteInformation{
@@ -131,7 +130,7 @@ var (
 		},
 	}
 
-	tiSubPatch1ForAf1 = models_nef.TrafficInfluSubPatch{
+	tiSubPatch1ForAf1 = models.NefTrafficInfluSubPatch{
 		TrafficFilters: []models.FlowInfo{
 			{
 				FlowId: 1,
@@ -140,7 +139,7 @@ var (
 				},
 			},
 		},
-		TrafficRoutes: []models.RouteToLocation{
+		TrafficRoutes: []*models.RouteToLocation{
 			{
 				Dnai: "mec5",
 			},
@@ -159,7 +158,7 @@ func TestGetTrafficInfluenceSubscription(t *testing.T) {
 			afID:        "af1",
 			expectedResponse: &HandlerResponse{
 				Status: http.StatusOK,
-				Body:   &[]models_nef.TrafficInfluSub{tiSub1ForAf1, tiSub2ForAf1},
+				Body:   &[]models.NefTrafficInfluSub{tiSub1ForAf1, tiSub2ForAf1},
 			},
 		},
 		{
@@ -197,8 +196,8 @@ func TestGetTrafficInfluenceSubscription(t *testing.T) {
 			nefApp.Processor().GetTrafficInfluenceSubscription(c, tc.afID)
 			require.Equal(t, tc.expectedResponse.Status, httpRecorder.Code)
 
-			if trafficInfluSub, ok := tc.expectedResponse.Body.(*[]models_nef.TrafficInfluSub); ok {
-				var rspSubs []models_nef.TrafficInfluSub
+			if trafficInfluSub, ok := tc.expectedResponse.Body.(*[]models.NefTrafficInfluSub); ok {
+				var rspSubs []models.NefTrafficInfluSub
 				require.NoError(t, json.Unmarshal(httpRecorder.Body.Bytes(), &rspSubs))
 				require.ElementsMatch(t, *trafficInfluSub, rspSubs)
 			} else {
@@ -295,7 +294,7 @@ func TestPostTrafficInfluenceSubscription(t *testing.T) {
 	testCases := []struct {
 		description      string
 		afID             string
-		tiSub            *models_nef.TrafficInfluSub
+		tiSub            *models.NefTrafficInfluSub
 		expectedResponse *HandlerResponse
 	}{
 		{
@@ -470,7 +469,7 @@ func TestPatchIndividualTrafficInfluenceSubscription(t *testing.T) {
 		description      string
 		afID             string
 		subID            string
-		tiSubPatch       *models_nef.TrafficInfluSubPatch
+		tiSubPatch       *models.NefTrafficInfluSubPatch
 		expectedResponse *HandlerResponse
 	}{
 		{
@@ -550,7 +549,7 @@ func TestPutIndividualTrafficInfluenceSubscription(t *testing.T) {
 		description      string
 		afID             string
 		subID            string
-		tiSub            *models_nef.TrafficInfluSub
+		tiSub            *models.NefTrafficInfluSub
 		expectedResponse *HandlerResponse
 	}{
 		{

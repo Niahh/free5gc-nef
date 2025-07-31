@@ -5,9 +5,9 @@
 package factory
 
 import (
-	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -51,11 +51,8 @@ type Config struct {
 }
 
 func (c *Config) Validate() (bool, error) {
-	if info := c.Info; info != nil {
-		if !govalidator.IsIn(info.Version, NefExpectedConfigVersion) {
-			err := errors.New("Config version should be " + NefExpectedConfigVersion)
-			return false, appendInvalid(err)
-		}
+	govalidator.TagMap["scheme"] = func(str string) bool {
+		return str == "https" || str == "http"
 	}
 
 	if configuration := c.Configuration; configuration != nil {
@@ -69,15 +66,16 @@ func (c *Config) Validate() (bool, error) {
 }
 
 type Info struct {
-	Version     string `yaml:"version,omitempty" valid:"type(string)"`
+	Version     string `yaml:"version,omitempty" valid:"required, in(1.0.2)"`
 	Description string `yaml:"description,omitempty" valid:"type(string)"`
 }
 
 type Configuration struct {
-	Sbi         *Sbi      `yaml:"sbi,omitempty" valid:"required"`
-	NrfUri      string    `yaml:"nrfUri,omitempty" valid:"required"`
-	NrfCertPem  string    `yaml:"nrfCertPem,omitempty" valid:"optional"`
-	ServiceList []Service `yaml:"serviceList,omitempty" valid:"required"`
+	NefName         string   `yaml:"nefName" valid:"required"`
+	Sbi             *Sbi     `yaml:"sbi,omitempty" valid:"required"`
+	NrfUri          string   `yaml:"nrfUri,omitempty" valid:"required"`
+	NrfCertPem      string   `yaml:"nrfCertPem,omitempty" valid:"optional"`
+	ServiceNameList []string `yaml:"serviceNameList,omitempty" valid:"required"`
 }
 
 type Logger struct {
@@ -92,14 +90,24 @@ func (c *Configuration) validate() (bool, error) {
 			return result, err
 		}
 	}
-	for i, s := range c.ServiceList {
-		switch s.ServiceName {
-		case ServiceNefPfd:
-		case ServiceNefOam:
-		default:
-			err := errors.New("invalid serviceList[" + strconv.Itoa(i) + "]: " +
-				s.ServiceName + ", should be " + ServiceNefPfd + " or " + ServiceNefOam)
-			return false, appendInvalid(err)
+	if c.ServiceNameList != nil {
+		var errs govalidator.Errors
+		services := []string{
+			"3gpp-pfd-management",
+			"3gpp-traffic-influence",
+			"nnef-callback",
+			"nnef-oam",
+			"nnef-pfdmanagement",
+		}
+		for _, serviceName := range c.ServiceNameList {
+			if !slices.Contains(services, serviceName) {
+				err := fmt.Errorf("invalid ServiceNameList: %s,"+
+					" value should be contained in %s", serviceName, strings.Join(services, " or "))
+				errs = append(errs, err)
+			}
+		}
+		if len(errs) > 0 {
+			return false, error(errs)
 		}
 	}
 	result, err := govalidator.ValidateStruct(c)
@@ -172,7 +180,7 @@ func (c *Config) Print() {
 	logger.CfgLog.Infof("==================================================")
 }
 
-func (c *Config) Version() string {
+func (c *Config) GetVersion() string {
 	c.RLock()
 	defer c.RUnlock()
 
@@ -256,7 +264,7 @@ func (c *Config) GetLogReportCaller() bool {
 	return c.Logger.ReportCaller
 }
 
-func (c *Config) SbiScheme() string {
+func (c *Config) GetSbiScheme() string {
 	c.RLock()
 	defer c.RUnlock()
 
@@ -266,7 +274,7 @@ func (c *Config) SbiScheme() string {
 	return NefSbiDefaultScheme
 }
 
-func (c *Config) SbiPort() int {
+func (c *Config) GetSbiPort() int {
 	c.RLock()
 	defer c.RUnlock()
 
@@ -276,7 +284,7 @@ func (c *Config) SbiPort() int {
 	return NefSbiDefaultPort
 }
 
-func (c *Config) SbiBindingIP() string {
+func (c *Config) GetSbiBindingIP() string {
 	c.RLock()
 	defer c.RUnlock()
 
@@ -291,11 +299,11 @@ func (c *Config) SbiBindingIP() string {
 	return bindIP
 }
 
-func (c *Config) SbiBindingAddr() string {
-	return c.SbiBindingIP() + ":" + strconv.Itoa(c.SbiPort())
+func (c *Config) GetSbiBindingAddr() string {
+	return c.GetSbiBindingIP() + ":" + strconv.Itoa(c.GetSbiPort())
 }
 
-func (c *Config) SbiRegisterIP() string {
+func (c *Config) GetSbiRegisterIP() string {
 	c.RLock()
 	defer c.RUnlock()
 
@@ -305,15 +313,15 @@ func (c *Config) SbiRegisterIP() string {
 	return NefSbiDefaultIPv4
 }
 
-func (c *Config) SbiRegisterAddr() string {
-	return c.SbiRegisterIP() + ":" + strconv.Itoa(c.SbiPort())
+func (c *Config) GetSbiRegisterAddr() string {
+	return c.GetSbiRegisterIP() + ":" + strconv.Itoa(c.GetSbiPort())
 }
 
-func (c *Config) SbiUri() string {
-	return c.SbiScheme() + "://" + c.SbiRegisterAddr()
+func (c *Config) GetSbiUri() string {
+	return c.GetSbiScheme() + "://" + c.GetSbiRegisterAddr()
 }
 
-func (c *Config) NrfUri() string {
+func (c *Config) GetNrfUri() string {
 	c.RLock()
 	defer c.RUnlock()
 
@@ -323,7 +331,7 @@ func (c *Config) NrfUri() string {
 	return NefDefaultNrfUri
 }
 
-func (c *Config) NrfCertPem() string {
+func (c *Config) GetNrfCertPath() string {
 	c.RLock()
 	defer c.RUnlock()
 
@@ -333,12 +341,11 @@ func (c *Config) NrfCertPem() string {
 	return "" // havn't setup in config
 }
 
-func (c *Config) ServiceList() []Service {
+func (c *Config) GetServiceNameList() []string {
 	c.RLock()
 	defer c.RUnlock()
-
-	if len(c.Configuration.ServiceList) > 0 {
-		return c.Configuration.ServiceList
+	if len(c.Configuration.ServiceNameList) > 0 {
+		return c.Configuration.ServiceNameList
 	}
 	return nil
 }
@@ -363,49 +370,18 @@ func (c *Config) GetCertKeyPath() string {
 	return NefDefaultPrivateKeyPath
 }
 
-func (c *Config) NFServices() []models.NfService {
-	versions := strings.Split(c.Version(), ".")
-	majorVersionUri := "v" + versions[0]
-	nfServices := []models.NfService{}
-	for i, s := range c.ServiceList() {
-		nfService := models.NfService{
-			ServiceInstanceId: strconv.Itoa(i),
-			ServiceName:       models.ServiceName(s.ServiceName),
-			Versions: &[]models.NfServiceVersion{
-				{
-					ApiFullVersion:  c.Version(),
-					ApiVersionInUri: majorVersionUri,
-				},
-			},
-			Scheme:          models.UriScheme(c.SbiScheme()),
-			NfServiceStatus: models.NfServiceStatus_REGISTERED,
-			ApiPrefix:       c.SbiUri(),
-			IpEndPoints: &[]models.IpEndPoint{
-				{
-					Ipv4Address: c.SbiRegisterIP(),
-					Transport:   models.TransportProtocol_TCP,
-					Port:        int32(c.SbiPort()),
-				},
-			},
-			SupportedFeatures: s.SuppFeat,
-		}
-		nfServices = append(nfServices, nfService)
-	}
-	return nfServices
-}
-
 func (c *Config) ServiceUri(name string) string {
 	switch name {
 	case ServiceTraffInflu:
-		return c.SbiUri() + TraffInfluResUriPrefix
+		return c.GetSbiUri() + TraffInfluResUriPrefix
 	case ServicePfdMng:
-		return c.SbiUri() + PfdMngResUriPrefix
+		return c.GetSbiUri() + PfdMngResUriPrefix
 	case ServiceNefPfd:
-		return c.SbiUri() + NefPfdMngResUriPrefix
+		return c.GetSbiUri() + NefPfdMngResUriPrefix
 	case ServiceNefOam:
-		return c.SbiUri() + NefOamResUriPrefix
+		return c.GetSbiUri() + NefOamResUriPrefix
 	case ServiceNefCallback:
-		return c.SbiUri() + NefCallbackResUriPrefix
+		return c.GetSbiUri() + NefCallbackResUriPrefix
 	default:
 		return ""
 	}

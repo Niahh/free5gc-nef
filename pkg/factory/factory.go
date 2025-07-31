@@ -13,6 +13,8 @@ import (
 	"gopkg.in/yaml.v2"
 )
 
+var NefConfig *Config
+
 // TODO: Support configuration update from REST api
 func InitConfigFactory(f string, cfg *Config) error {
 	if f == "" {

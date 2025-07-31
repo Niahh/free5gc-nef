@@ -196,11 +196,11 @@ func TestPostPfdChangeReports(t *testing.T) {
 
 	subsID1 := nefApp.Notifier().PfdChangeNotifier.AddPfdSub(&models.PfdSubscription{
 		ApplicationIds: []string{"app1"},
-		NotifyUri:      "http://pfdSub2URI",
+		NotifyUri:      "http://pfdSub2URI/notify",
 	})
 	subsID2 := nefApp.Notifier().PfdChangeNotifier.AddPfdSub(&models.PfdSubscription{
 		ApplicationIds: []string{"app1", "app2"},
-		NotifyUri:      "http://pfdSub3URI",
+		NotifyUri:      "http://pfdSub3URI/notify",
 	})
 	defer func() {
 		if err := nefApp.Notifier().PfdChangeNotifier.DeletePfdSub(subsID1); err != nil {

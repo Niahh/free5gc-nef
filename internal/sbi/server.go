@@ -74,7 +74,7 @@ func NewServer(nef nef, tlsKeyLogPath string) (*Server, error) {
 		MaxAge:           CorsConfigMaxAge,
 	}))
 
-	bindAddr := s.Config().SbiBindingAddr()
+	bindAddr := s.nef.Config().GetSbiBindingAddr()
 	logger.SBILog.Infof("Binding addr: [%s]", bindAddr)
 	var err error
 	if s.httpServer, err = httpwrapper.NewHttp2Server(bindAddr, tlsKeyLogPath, s.router); err != nil {
@@ -115,13 +115,13 @@ func (s *Server) startServer(wg *sync.WaitGroup) {
 
 	var err error
 
-	scheme := s.Config().SbiScheme()
+	scheme := s.nef.Context().GetUriScheme()
 	switch scheme {
 	case "http":
 		err = s.httpServer.ListenAndServe()
 	case "https":
 		// TODO: use config file to config path
-		err = s.httpServer.ListenAndServeTLS(s.Config().GetCertPemPath(), s.Config().GetCertKeyPath())
+		err = s.httpServer.ListenAndServeTLS(s.nef.Config().GetCertPemPath(), s.nef.Config().GetCertKeyPath())
 	default:
 		err = fmt.Errorf("scheme [%s] is not supported", scheme)
 	}

@@ -28,23 +28,23 @@ type nefTestApp struct {
 	proc     *Processor
 }
 
-func newTestApp(cfg *factory.Config, tlsKeyLogPath string) (*nefTestApp, error) {
+func newTestApp(cfg *factory.Config) (*nefTestApp, error) {
 	var err error
-	nef := &nefTestApp{cfg: cfg}
+	testNef := &nefTestApp{cfg: cfg}
 
-	if nef.nefCtx, err = nef_context.NewContext(nef); err != nil {
+	testNef.nefCtx = nef_context.GetSelf()
+	nef_context.InitNefContext(testNef.nefCtx, testNef.cfg)
+
+	if testNef.consumer, err = consumer.NewConsumer(testNef); err != nil {
 		return nil, err
 	}
-	if nef.consumer, err = consumer.NewConsumer(nef); err != nil {
+	if testNef.notifier, err = notifier.NewNotifier(testNef.nefCtx); err != nil {
 		return nil, err
 	}
-	if nef.notifier, err = notifier.NewNotifier(); err != nil {
+	if testNef.proc, err = NewProcessor(testNef); err != nil {
 		return nil, err
 	}
-	if nef.proc, err = NewProcessor(nef); err != nil {
-		return nil, err
-	}
-	return nef, nil
+	return testNef, nil
 }
 
 func (a *nefTestApp) Config() *factory.Config {
@@ -129,7 +129,8 @@ func TestMain(m *testing.M) {
 
 	cfg := &factory.Config{
 		Info: &factory.Info{
-			Version: "1.0.0",
+			Version:     "1.0.2",
+			Description: "NEF test configuration",
 		},
 		Configuration: &factory.Configuration{
 			Sbi: &factory.Sbi{
@@ -139,14 +140,16 @@ func TestMain(m *testing.M) {
 				Port:         8000,
 			},
 			NrfUri: "http://127.0.0.10:8000",
-			ServiceList: []factory.Service{
-				{
-					ServiceName: factory.ServiceNefPfd,
-				},
+			ServiceNameList: []string{
+				"3gpp-pfd-management",
+				"3gpp-traffic-influence",
+				"nnef-callback",
+				"nnef-oam",
+				"nnef-pfdmanagement",
 			},
 		},
 	}
-	nefApp, err = newTestApp(cfg, "")
+	nefApp, err = newTestApp(cfg)
 	if err != nil {
 		panic(err)
 	}
@@ -1109,7 +1112,7 @@ func TestValidatePfdData(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.description, func(t *testing.T) {
-			rst := validatePfdData(tc.pfdData, nefApp.Context(), false)
+			rst := validatePfdData(tc.pfdData, false)
 			require.Equal(t, tc.expectedResult, rst)
 		})
 	}
@@ -1239,7 +1242,7 @@ func TestPatchModifyPfdData(t *testing.T) {
 }
 
 func initNRFNfmStub() {
-	nrfRegisterInstanceRsp := models.NfProfile{
+	nrfRegisterInstanceRsp := models.NrfNfManagementNfProfile{
 		NfInstanceId: "nef-pfd-unit-testing",
 	}
 	gock.New("http://127.0.0.10:8000/nnrf-nfm/v1").
@@ -1254,7 +1257,7 @@ func initNRFNfmStub() {
 func initNRFDiscUDRStub() {
 	searchResult := &models.SearchResult{
 		ValidityPeriod: 100,
-		NfInstances: []models.NfProfile{
+		NfInstances: []models.NrfNfDiscoveryNfProfile{
 			{
 				NfInstanceId: "nef-unit-testing",
 				NfType:       "UDR",
@@ -1264,11 +1267,11 @@ func initNRFDiscUDRStub() {
 						"SUBSCRIPTION",
 					},
 				},
-				NfServices: &[]models.NfService{
+				NfServices: []models.NrfNfDiscoveryNfService{
 					{
 						ServiceInstanceId: "datarepository",
 						ServiceName:       "nudr-dr",
-						Versions: &[]models.NfServiceVersion{
+						Versions: []models.NfServiceVersion{
 							{
 								ApiVersionInUri: "v1",
 								ApiFullVersion:  "1.0.0",
@@ -1276,7 +1279,7 @@ func initNRFDiscUDRStub() {
 						},
 						Scheme:          "http",
 						NfServiceStatus: "REGISTERED",
-						IpEndPoints: &[]models.IpEndPoint{
+						IpEndPoints: []models.IpEndPoint{
 							{
 								Ipv4Address: "127.0.0.4",
 								Transport:   "TCP",
@@ -1302,7 +1305,7 @@ func initNRFDiscUDRStub() {
 func initNRFDiscPCFStub() {
 	searchResult := &models.SearchResult{
 		ValidityPeriod: 100,
-		NfInstances: []models.NfProfile{
+		NfInstances: []models.NrfNfDiscoveryNfProfile{
 			{
 				NfInstanceId: "nef-unit-testing",
 				NfType:       "PCF",
@@ -1316,11 +1319,11 @@ func initNRFDiscPCFStub() {
 						"internet",
 					},
 				},
-				NfServices: &[]models.NfService{
+				NfServices: []models.NrfNfDiscoveryNfService{
 					{
 						ServiceInstanceId: "1",
 						ServiceName:       "npcf-policyauthorization",
-						Versions: &[]models.NfServiceVersion{
+						Versions: []models.NfServiceVersion{
 							{
 								ApiVersionInUri: "v1",
 								ApiFullVersion:  "1.0.0",
@@ -1328,7 +1331,7 @@ func initNRFDiscPCFStub() {
 						},
 						Scheme:          "http",
 						NfServiceStatus: "REGISTERED",
-						IpEndPoints: &[]models.IpEndPoint{
+						IpEndPoints: []models.IpEndPoint{
 							{
 								Ipv4Address: "127.0.0.7",
 								Transport:   "TCP",

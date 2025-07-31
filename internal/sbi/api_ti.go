@@ -5,7 +5,7 @@ import (
 
 	"github.com/free5gc/nef/internal/logger"
 	"github.com/free5gc/openapi"
-	"github.com/free5gc/openapi/models_nef"
+	"github.com/free5gc/openapi/models"
 	"github.com/gin-gonic/gin"
 )
 
@@ -50,7 +50,7 @@ func (s *Server) apiGetTrafficInfluenceSubscription(gc *gin.Context) {
 }
 
 func (s *Server) apiPostTrafficInfluenceSubscription(gc *gin.Context) {
-	var tiSub models_nef.TrafficInfluSub
+	var tiSub models.NefTrafficInfluSub
 	reqBody, err := gc.GetRawData()
 	if err != nil {
 		logger.SBILog.Errorf("Get Request Body error: %+v", err)
@@ -77,7 +77,7 @@ func (s *Server) apiGetIndividualTrafficInfluenceSubscription(gc *gin.Context) {
 }
 
 func (s *Server) apiPutIndividualTrafficInfluenceSubscription(gc *gin.Context) {
-	var tiSub models_nef.TrafficInfluSub
+	var tiSub models.NefTrafficInfluSub
 	reqBody, err := gc.GetRawData()
 	if err != nil {
 		logger.SBILog.Errorf("Get Request Body error: %+v", err)
@@ -99,7 +99,7 @@ func (s *Server) apiPutIndividualTrafficInfluenceSubscription(gc *gin.Context) {
 }
 
 func (s *Server) apiPatchIndividualTrafficInfluenceSubscription(gc *gin.Context) {
-	var tiSubPatch models_nef.TrafficInfluSubPatch
+	var tiSubPatch models.NefTrafficInfluSubPatch
 	reqBody, err := gc.GetRawData()
 	if err != nil {
 		logger.SBILog.Errorf("Get Request Body error: %+v", err)

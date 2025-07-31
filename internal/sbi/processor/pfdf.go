@@ -11,22 +11,63 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// 3GPP TS 29.551 - rel 17.6.0
+// Request  : Table 5.3.2.3.1-1
+// Response : Table 5.3.2.3.1-3
 func (p *Processor) GetApplicationsPFD(c *gin.Context, appIDs []string) {
 	logger.PFDFLog.Infof("GetApplicationsPFD - appIDs: %v", appIDs)
 
 	// TODO: Support SupportedFeatures
-	rspCode, rspBody := p.Consumer().AppDataPfdsGet(appIDs)
+	pdfDataForAppExt, pd, errAppDataGet := p.Consumer().AppDataPfdsGet(appIDs)
 
-	c.JSON(rspCode, rspBody)
+	switch {
+	case pd != nil:
+		c.JSON(int(pd.Status), pd)
+		return
+	case errAppDataGet != nil:
+		problemDetails := &models.ProblemDetails{
+			Status: http.StatusInternalServerError,
+			Detail: "Query to UDR failed",
+		}
+		c.JSON(int(problemDetails.Status), problemDetails)
+		return
+	}
+
+	var pfdDataForApp []models.PfdDataForApp
+
+	for _, dataForExt := range pdfDataForAppExt {
+		pfdDataForApp = append(pfdDataForApp, *convertPdfDataForAppExtToPfdDataForApp(&dataForExt))
+	}
+
+	c.JSON(http.StatusOK, pfdDataForApp)
 }
 
+// GetIndividualApplicationPFD Returns a representation of PFDs for an application
+// 3GPP TS 29.551 - rel 17.6.0
+// Request  -> Table 5.3.3.3.1-1
+// Response -> Table 5.3.3.3.1-3
 func (p *Processor) GetIndividualApplicationPFD(c *gin.Context, appID string) {
 	logger.PFDFLog.Infof("GetIndividualApplicationPFD - appID[%s]", appID)
 
 	// TODO: Support SupportedFeatures
-	rspCode, rspBody := p.Consumer().AppDataPfdsAppIdGet(appID)
+	pdfDataRsp, pdfDataProblemDetails, errPdfData := p.Consumer().AppDataPfdsAppIdGet(appID)
 
-	c.JSON(rspCode, rspBody)
+	switch {
+	case pdfDataProblemDetails != nil:
+		c.JSON(int(pdfDataProblemDetails.Status), pdfDataProblemDetails)
+		return
+	case errPdfData != nil:
+		problemDetails := models.ProblemDetails{
+			Status: http.StatusInternalServerError,
+			Detail: "Query to UDR failed",
+		}
+		c.JSON(int(problemDetails.Status), problemDetails)
+		return
+	}
+
+	pdfDataForApp := convertPdfDataForAppExtToPfdDataForApp(&pdfDataRsp.PfdDataForAppExt)
+
+	c.JSON(http.StatusOK, pdfDataForApp)
 }
 
 func (p *Processor) PostPFDSubscriptions(c *gin.Context, pfdSubsc *models.PfdSubscription) {
