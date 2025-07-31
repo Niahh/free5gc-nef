@@ -1,14 +1,17 @@
 package consumer
 
 import (
+	"fmt"
+	"github.com/free5gc/nef/internal/util"
+	"github.com/free5gc/openapi"
+	Nnrf_NFDiscovery "github.com/free5gc/openapi/nrf/NFDiscovery"
 	"net/http"
 	"strings"
 	"sync"
 
-	"github.com/antihax/optional"
 	"github.com/free5gc/nef/internal/logger"
-	"github.com/free5gc/openapi/Npcf_PolicyAuthorization"
 	"github.com/free5gc/openapi/models"
+	Npcf_PolicyAuthorization "github.com/free5gc/openapi/pcf/PolicyAuthorization"
 )
 
 type npcfService struct {
@@ -18,312 +21,342 @@ type npcfService struct {
 	clients map[string]*Npcf_PolicyAuthorization.APIClient
 }
 
-func (s *npcfService) getClient(uri string) *Npcf_PolicyAuthorization.APIClient {
+func (s *npcfService) getPolicyAuthorizationClient(uri string) *Npcf_PolicyAuthorization.APIClient {
+	if uri == "" {
+		return nil
+	}
+
 	s.mu.RLock()
-	if client, ok := s.clients[uri]; ok {
+	client, ok := s.clients[uri]
+	if ok {
 		defer s.mu.RUnlock()
 		return client
-	} else {
-		configuration := Npcf_PolicyAuthorization.NewConfiguration()
-		configuration.SetBasePath(uri)
-		cli := Npcf_PolicyAuthorization.NewAPIClient(configuration)
-
-		s.mu.RUnlock()
-		s.mu.Lock()
-		defer s.mu.Unlock()
-		s.clients[uri] = cli
-		return cli
 	}
+
+	configuration := Npcf_PolicyAuthorization.NewConfiguration()
+	configuration.SetBasePath(uri)
+	cli := Npcf_PolicyAuthorization.NewAPIClient(configuration)
+
+	s.mu.RUnlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.clients[uri] = cli
+	return cli
 }
 
 func (s *npcfService) getPcfPolicyAuthUri() (string, error) {
-	uri := s.consumer.Context().PcfPaUri()
-	if uri == "" {
-		_, sUri, err := s.consumer.SearchNFInstances(s.consumer.Config().NrfUri(),
-			models.ServiceName_NPCF_POLICYAUTHORIZATION, nil)
-		if err == nil {
-			s.consumer.Context().SetPcfPaUri(sUri)
+	nefCtx := s.consumer.Context()
+	pcfPaUri := nefCtx.GetPcfPaUri()
+
+	if pcfPaUri == "" {
+
+		param := &Nnrf_NFDiscovery.SearchNFInstancesRequest{}
+
+		searchResult, err := s.consumer.SendSearchNFInstances(
+			nefCtx.GetNrfUri(), models.NrfNfManagementNfType_PCF, models.NrfNfManagementNfType_NEF, param)
+
+		if err != nil {
+			logger.ConsumerLog.Errorf("NEF can not select a PCF by NRF")
+			return "", err
 		}
-		return sUri, err
-	}
-	return uri, nil
-}
 
-func (s *npcfService) GetAppSession(appSessionId string) (int, interface{}) {
-	var (
-		err     error
-		rspCode int
-		rspBody interface{}
-		result  models.AppSessionContext
-		rsp     *http.Response
-	)
-
-	uri, err := s.getPcfPolicyAuthUri()
-	if err != nil {
-		return rspCode, rspBody
-	}
-	client := s.getClient(uri)
-
-	ctx, _, err := s.consumer.Context().GetTokenCtx(models.ServiceName_NPCF_POLICYAUTHORIZATION, models.NfType_PCF)
-	if err != nil {
-		return rspCode, rspBody
-	}
-
-	result, rsp, err = client.IndividualApplicationSessionContextDocumentApi.
-		GetAppSession(ctx, appSessionId)
-
-	if rsp != nil {
-		defer func() {
-			if rsp.Request.Response != nil {
-				rsp_err := rsp.Request.Response.Body.Close()
-				if rsp_err != nil {
-					logger.ConsumerLog.Errorf("ResponseBody can't be close: %+v", err)
-				}
+		for _, profile := range searchResult.NfInstances {
+			sUri := util.SearchNFServiceUri(
+				profile, models.ServiceName_NPCF_POLICYAUTHORIZATION, models.NfServiceStatus_REGISTERED)
+			if sUri != "" {
+				nefCtx.SetPcfPaUri(sUri)
+				return sUri, nil
 			}
-		}()
-
-		rspCode = rsp.StatusCode
-		if rsp.StatusCode == http.StatusOK {
-			rspBody = &result
-		} else if err != nil {
-			rspCode, rspBody = handleAPIServiceResponseError(rsp, err)
 		}
-	} else {
-		// API Service Internal Error or Server No Response
-		rspCode, rspBody = handleAPIServiceNoResponse(err)
+		return pcfPaUri, fmt.Errorf("nef did not find any suitable PCF after NRF discovery")
 	}
-
-	return rspCode, rspBody
+	return pcfPaUri, nil
 }
 
-func (s *npcfService) PostAppSessions(asc *models.AppSessionContext) (int, interface{}, string) {
-	var (
-		err       error
-		rspCode   int
-		rspBody   interface{}
-		appSessID string
-		result    models.AppSessionContext
-		rsp       *http.Response
-	)
-
+func (s *npcfService) GetAppSession(appSessionId string) (
+	*models.AppSessionContext, *models.ProblemDetails, error) {
 	uri, err := s.getPcfPolicyAuthUri()
-	if err != nil {
-		return rspCode, rspBody, appSessID
-	}
-	client := s.getClient(uri)
 
-	ctx, _, err := s.consumer.Context().GetTokenCtx(models.ServiceName_NPCF_POLICYAUTHORIZATION, models.NfType_PCF)
 	if err != nil {
-		return rspCode, rspBody, appSessID
+		return nil, nil, err
 	}
 
-	result, rsp, err = client.ApplicationSessionsCollectionApi.PostAppSessions(ctx, *asc)
-	if rsp != nil {
-		defer func() {
-			if rsp.Request.Response != nil {
-				rsp_err := rsp.Request.Response.Body.Close()
-				if rsp_err != nil {
-					logger.ConsumerLog.Errorf("ResponseBody can't be close: %+v", err)
-				}
+	client := s.getPolicyAuthorizationClient(uri)
+
+	if client == nil {
+		return nil, nil, openapi.ReportError("could not initialize the PolicyAuthorization client")
+	}
+
+	ctx, _, err := s.consumer.Context().GetTokenCtx(
+		models.ServiceName_NPCF_POLICYAUTHORIZATION, models.NrfNfManagementNfType_PCF)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	appSessionsRequest := Npcf_PolicyAuthorization.GetAppSessionRequest{
+		AppSessionId: &appSessionId,
+	}
+
+	getAppSessionRsp, errGetAppSessionRsp := client.IndividualApplicationSessionContextDocumentApi.GetAppSession(ctx, &appSessionsRequest)
+
+	if errGetAppSessionRsp != nil {
+		switch apiErr := errGetAppSessionRsp.(type) {
+		// API error
+		case openapi.GenericOpenAPIError:
+			switch errorModel := apiErr.Model().(type) {
+			case Npcf_PolicyAuthorization.GetAppSessionError:
+				// TODO: handle the 307/308 http status code
+				return nil, &errorModel.ProblemDetails, nil
+			case error:
+				return nil, openapi.ProblemDetailsSystemFailure(errorModel.Error()), nil
+			default:
+				return nil, nil, openapi.ReportError("openapi error")
 			}
-		}()
-
-		rspCode = rsp.StatusCode
-		if rsp.StatusCode == http.StatusCreated {
-			logger.ConsumerLog.Debugf("PostAppSessions RspData: %+v", result)
-			rspBody = &result
-			appSessID = getAppSessIDFromRspLocationHeader(rsp)
-		} else if err != nil {
-			rspCode, rspBody = handleAPIServiceResponseError(rsp, err)
+		case error:
+			return nil, openapi.ProblemDetailsSystemFailure(apiErr.Error()), nil
+		default:
+			return nil, nil, openapi.ReportError("server no response")
 		}
-	} else {
-		// API Service Internal Error or Server No Response
-		rspCode, rspBody = handleAPIServiceNoResponse(err)
 	}
 
-	return rspCode, rspBody, appSessID
+	return &getAppSessionRsp.AppSessionContext, nil, nil
 }
 
+func (s *npcfService) PostAppSessions(asc *models.AppSessionContext) (string, *models.ProblemDetails, error) {
+	uri, err := s.getPcfPolicyAuthUri()
+
+	client := s.getPolicyAuthorizationClient(uri)
+
+	if client == nil {
+		return "", nil, openapi.ReportError("could not initialize the PolicyAuthorization client")
+	}
+
+	ctx, _, err := s.consumer.Context().GetTokenCtx(models.ServiceName_NPCF_POLICYAUTHORIZATION, models.NrfNfManagementNfType_PCF)
+	if err != nil {
+		return "", nil, err
+	}
+
+	appSessionsRequest := Npcf_PolicyAuthorization.PostAppSessionsRequest{
+		AppSessionContext: asc,
+	}
+
+	postAppSessionsRsp, errPostAppSessionRsp := client.ApplicationSessionsCollectionApi.PostAppSessions(ctx, &appSessionsRequest)
+
+	if errPostAppSessionRsp != nil {
+		switch apiErr := errPostAppSessionRsp.(type) {
+		// API error
+		case openapi.GenericOpenAPIError:
+			switch errorModel := apiErr.Model().(type) {
+			case Npcf_PolicyAuthorization.PostAppSessionsError:
+				return "", &errorModel.ProblemDetails, nil
+			case error:
+				return "", openapi.ProblemDetailsSystemFailure(errorModel.Error()), nil
+			default:
+				return "", nil, openapi.ReportError("openapi error")
+			}
+		case error:
+			return "", openapi.ProblemDetailsSystemFailure(apiErr.Error()), nil
+		default:
+			return "", nil, openapi.ReportError("server no response")
+		}
+	}
+
+	var sessId string
+
+	if postAppSessionsRsp != nil {
+		sessId = getAppSessIDFromRspLocationHeader(postAppSessionsRsp.Location)
+	}
+
+	return sessId, nil, nil
+}
+
+// 3GPP TS 29.522
 func (s *npcfService) PutAppSession(
 	appSessionId string,
 	ascUpdateData *models.AppSessionContextUpdateData,
-	asc *models.AppSessionContext,
-) (int, interface{}, string) {
-	var (
-		err       error
-		rspCode   int
-		rspBody   interface{}
-		appSessID string
-		result    models.AppSessionContext
-		rsp       *http.Response
-	)
+) (*models.AppSessionContext, *models.ProblemDetails, error) {
 
 	uri, err := s.getPcfPolicyAuthUri()
 	if err != nil {
-		return rspCode, rspBody, appSessID
+		return nil, nil, err
 	}
-	client := s.getClient(uri)
 
-	ctx, _, err := s.consumer.Context().GetTokenCtx(models.ServiceName_NPCF_POLICYAUTHORIZATION, models.NfType_PCF)
+	client := s.getPolicyAuthorizationClient(uri)
+
+	if client == nil {
+		return nil, nil, openapi.ReportError("could not initialize the PolicyAuthorization client")
+	}
+
+	ctx, _, err := s.consumer.Context().GetTokenCtx(models.ServiceName_NPCF_POLICYAUTHORIZATION, models.NrfNfManagementNfType_PCF)
 	if err != nil {
-		return rspCode, rspBody, appSessID
+		return nil, nil, err
 	}
 
-	appSessID = appSessionId
-	result, rsp, err = client.IndividualApplicationSessionContextDocumentApi.
-		GetAppSession(ctx, appSessionId)
-	if rsp != nil {
-		if rsp.Body != nil {
-			if bodyCloseErr := rsp.Body.Close(); bodyCloseErr != nil {
-				logger.ConsumerLog.Errorf("SearchNFInstances err: response body cannot close: %+v", bodyCloseErr)
-			}
+	appSessionCtx, pbAppSessionCtx, errAppSessionCtx := s.GetAppSession(appSessionId)
+
+	var modifiedAppSessionCtx models.AppSessionContext
+
+	switch {
+	case pbAppSessionCtx != nil:
+		return nil, pbAppSessionCtx, nil
+	case errAppSessionCtx != nil:
+		return nil, nil, errAppSessionCtx
+	case appSessionCtx != nil:
+		// If we retrieved the appSession, we patch it.
+
+		appSessionCtxUpdateDataPatch := models.AppSessionContextUpdateDataPatch{AscReqData: ascUpdateData}
+
+		modAppSessionReq := Npcf_PolicyAuthorization.ModAppSessionRequest{
+			AppSessionId:                     &appSessionId,
+			AppSessionContextUpdateDataPatch: &appSessionCtxUpdateDataPatch,
 		}
 
-		rspCode = rsp.StatusCode
-		if rsp.StatusCode == http.StatusOK {
-			// Patch
-			result, rsp, err = client.IndividualApplicationSessionContextDocumentApi.ModAppSession(
-				ctx, appSessionId, *ascUpdateData)
-			if rsp != nil {
-				defer func() {
-					if rsp.Request.Response != nil {
-						rsp_err := rsp.Request.Response.Body.Close()
-						if rsp_err != nil {
-							logger.ConsumerLog.Errorf("ResponseBody can't be close: %+v", err)
-						}
-					}
-				}()
+		modAppSessionRsp, errModAppSessionRsp := client.IndividualApplicationSessionContextDocumentApi.ModAppSession(
+			ctx, &modAppSessionReq)
 
-				rspCode = rsp.StatusCode
-				if rsp.StatusCode == http.StatusOK {
-					logger.ConsumerLog.Debugf("PatchAppSessions RspData: %+v", result)
-					rspBody = &result
-				} else if err != nil {
-					rspCode, rspBody = handleAPIServiceResponseError(rsp, err)
+		if errModAppSessionRsp != nil {
+			switch apiErr := errModAppSessionRsp.(type) {
+			// API error
+			case openapi.GenericOpenAPIError:
+				switch errorModel := apiErr.Model().(type) {
+				case Npcf_PolicyAuthorization.ModAppSessionError:
+					// TODO: handle the 307/308 http status code
+					return nil, &errorModel.ProblemDetails, nil
+				case error:
+					return nil, openapi.ProblemDetailsSystemFailure(errorModel.Error()), nil
+				default:
+					return nil, nil, openapi.ReportError("openapi error")
 				}
-			} else {
-				// API Service Internal Error or Server No Response
-				rspCode, rspBody = handleAPIServiceNoResponse(err)
+			case error:
+				return nil, openapi.ProblemDetailsSystemFailure(apiErr.Error()), nil
+			default:
+				return nil, nil, openapi.ReportError("server no response")
 			}
-
-			return rspCode, rspBody, appSessID
 		}
-		// TODO:
-		// else if err != nil {
-		// 	// Post
-		// }
-	} else {
-		// API Service Internal Error or Server No Response
-		rspCode, rspBody = handleAPIServiceNoResponse(err)
-		return rspCode, rspBody, appSessID
+
+		modifiedAppSessionCtx = modAppSessionRsp.AppSessionContext
+		logger.ConsumerLog.Debugf("PatchAppSessions RspData: %+v", modifiedAppSessionCtx)
 	}
 
-	return rspCode, rspBody, appSessID
+	return &modifiedAppSessionCtx, nil, nil
 }
 
 func (s *npcfService) PatchAppSession(appSessionId string,
 	ascUpdateData *models.AppSessionContextUpdateData,
-) (int, interface{}) {
-	var (
-		err     error
-		rspCode int
-		rspBody interface{}
-		result  models.AppSessionContext
-		rsp     *http.Response
-	)
+) (*models.AppSessionContext, *models.ProblemDetails, error) {
 
 	uri, err := s.getPcfPolicyAuthUri()
 	if err != nil {
-		return rspCode, rspBody
+		return nil, nil, err
 	}
-	client := s.getClient(uri)
 
-	ctx, _, err := s.consumer.Context().GetTokenCtx(models.ServiceName_NPCF_POLICYAUTHORIZATION, models.NfType_PCF)
+	client := s.getPolicyAuthorizationClient(uri)
+
+	if client == nil {
+		return nil, nil, openapi.ReportError("could not initialize the PolicyAuthorization client")
+	}
+
+	ctx, _, err := s.consumer.Context().GetTokenCtx(models.ServiceName_NPCF_POLICYAUTHORIZATION, models.NrfNfManagementNfType_PCF)
 	if err != nil {
-		return rspCode, rspBody
+		return nil, nil, err
 	}
 
-	result, rsp, err = client.IndividualApplicationSessionContextDocumentApi.ModAppSession(
-		ctx, appSessionId, *ascUpdateData)
-	if rsp != nil {
-		defer func() {
-			if rsp.Request.Response != nil {
-				rsp_err := rsp.Request.Response.Body.Close()
-				if rsp_err != nil {
-					logger.ConsumerLog.Errorf("ResponseBody can't be close: %+v", err)
-				}
+	appSessionCtxUpdateDataPatch := models.AppSessionContextUpdateDataPatch{AscReqData: ascUpdateData}
+
+	modAppSessionReq := Npcf_PolicyAuthorization.ModAppSessionRequest{
+		AppSessionId:                     &appSessionId,
+		AppSessionContextUpdateDataPatch: &appSessionCtxUpdateDataPatch,
+	}
+
+	modAppSessionRsp, errModAppSessionRsp := client.IndividualApplicationSessionContextDocumentApi.ModAppSession(
+		ctx, &modAppSessionReq)
+
+	if errModAppSessionRsp != nil {
+		switch apiErr := errModAppSessionRsp.(type) {
+		// API error
+		case openapi.GenericOpenAPIError:
+			switch errorModel := apiErr.Model().(type) {
+			case Npcf_PolicyAuthorization.ModAppSessionError:
+				// TODO: handle the 307/308 http status code
+				return nil, &errorModel.ProblemDetails, nil
+			case error:
+				return nil, openapi.ProblemDetailsSystemFailure(errorModel.Error()), nil
+			default:
+				return nil, nil, openapi.ReportError("openapi error")
 			}
-		}()
-
-		rspCode = rsp.StatusCode
-		if rsp.StatusCode == http.StatusOK {
-			logger.ConsumerLog.Debugf("PatchAppSessions RspData: %+v", result)
-			rspBody = &result
-		} else if err != nil {
-			rspCode, rspBody = handleAPIServiceResponseError(rsp, err)
+		case error:
+			return nil, openapi.ProblemDetailsSystemFailure(apiErr.Error()), nil
+		default:
+			return nil, nil, openapi.ReportError("server no response")
 		}
-	} else {
-		// API Service Internal Error or Server No Response
-		rspCode, rspBody = handleAPIServiceNoResponse(err)
 	}
 
-	return rspCode, rspBody
+	logger.ConsumerLog.Debugf("PatchAppSessions RspData: %+v", modAppSessionRsp.AppSessionContext)
+
+	return &modAppSessionRsp.AppSessionContext, nil, nil
 }
 
-func (s *npcfService) DeleteAppSession(appSessionId string) (int, interface{}) {
-	var (
-		err     error
-		rspCode int
-		rspBody interface{}
-		result  models.AppSessionContext
-		rsp     *http.Response
-	)
-
+// DeleteAppSession Sends out a deleteAppSession API request to the PCF and returns either a status code,
+// a problemDetails or an error format.
+// 3GPP TS 29.522
+// Individual Traffic Influence Subscription, 5.4.1.3.3.5-3 Table.
+func (s *npcfService) DeleteAppSession(appSessionId string) (int, *models.ProblemDetails, error) {
 	uri, err := s.getPcfPolicyAuthUri()
 	if err != nil {
-		return rspCode, rspBody
-	}
-	client := s.getClient(uri)
-
-	param := &Npcf_PolicyAuthorization.DeleteAppSessionParamOpts{
-		EventsSubscReqData: optional.NewInterface(models.EventsSubscReqData{}),
+		return 0, nil, err
 	}
 
-	ctx, _, err := s.consumer.Context().GetTokenCtx(models.ServiceName_NPCF_POLICYAUTHORIZATION, models.NfType_PCF)
+	client := s.getPolicyAuthorizationClient(uri)
+
+	if client == nil {
+		return 0, nil, openapi.ReportError("could not initialize the PolicyAuthorization client")
+	}
+
+	ctx, _, err := s.consumer.Context().GetTokenCtx(models.ServiceName_NPCF_POLICYAUTHORIZATION, models.NrfNfManagementNfType_PCF)
 	if err != nil {
-		return rspCode, rspBody
+		return 0, nil, err
 	}
 
-	result, rsp, err = client.IndividualApplicationSessionContextDocumentApi.DeleteAppSession(
-		ctx, appSessionId, param)
-	if rsp != nil {
-		defer func() {
-			if rsp.Request.Response != nil {
-				rsp_err := rsp.Request.Response.Body.Close()
-				if rsp_err != nil {
-					logger.ConsumerLog.Errorf("ResponseBody can't be close: %+v", err)
-				}
+	deleteAppSessionReq := Npcf_PolicyAuthorization.DeleteAppSessionRequest{
+		AppSessionId: &appSessionId,
+		// Parameter is optional, to change when the PCF will handle it.
+		PcfPolicyAuthorizationEventsSubscReqData: nil,
+	}
+
+	// Here the response do not have any interest as we do not return
+	_, errDeleteAppSessRsp := client.IndividualApplicationSessionContextDocumentApi.DeleteAppSession(
+		ctx, &deleteAppSessionReq)
+
+	if errDeleteAppSessRsp != nil {
+		var problemDetails *models.ProblemDetails
+		switch apiErr := errDeleteAppSessRsp.(type) {
+		// API error
+		case openapi.GenericOpenAPIError:
+			switch errorModel := apiErr.Model().(type) {
+			case Npcf_PolicyAuthorization.DeleteAppSessionError:
+				// TODO: handle the 307/308 http status code
+				problemDetails = &errorModel.ProblemDetails
+				return int(problemDetails.Status), problemDetails, nil
+			case error:
+				problemDetails = openapi.ProblemDetailsSystemFailure(errorModel.Error())
+				return int(problemDetails.Status), problemDetails, nil
+			default:
+				return 0, nil, openapi.ReportError("openapi error")
 			}
-		}()
-
-		rspCode = rsp.StatusCode
-		if rsp.StatusCode == http.StatusOK {
-			logger.ConsumerLog.Debugf("DeleteAppSessions RspData: %+v", result)
-			rspBody = &result
-		} else if err != nil {
-			rspCode, rspBody = handleAPIServiceResponseError(rsp, err)
+		case error:
+			problemDetails = openapi.ProblemDetailsSystemFailure(apiErr.Error())
+			return int(problemDetails.Status), problemDetails, nil
+		default:
+			return 0, nil, openapi.ReportError("server no response")
 		}
-	} else {
-		// API Service Internal Error or Server No Response
-		rspCode, rspBody = handleAPIServiceNoResponse(err)
 	}
 
-	return rspCode, rspBody
+	// As per 5.4.1.3.3.5-3, we return StatusNoContent
+	return http.StatusNoContent, nil, nil
 }
 
-func getAppSessIDFromRspLocationHeader(rsp *http.Response) string {
+func getAppSessIDFromRspLocationHeader(loc string) string {
 	appSessID := ""
-	loc := rsp.Header.Get("Location")
 	if strings.Contains(loc, "http") {
 		index := strings.LastIndex(loc, "/")
 		appSessID = loc[index+1:]

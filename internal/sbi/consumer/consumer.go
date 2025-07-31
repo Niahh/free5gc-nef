@@ -1,29 +1,26 @@
 package consumer
 
 import (
+	"github.com/free5gc/nef/pkg/app"
 	"net/http"
 
-	nef_context "github.com/free5gc/nef/internal/context"
 	"github.com/free5gc/nef/internal/logger"
-	"github.com/free5gc/nef/pkg/app"
-	"github.com/free5gc/nef/pkg/factory"
 	"github.com/free5gc/openapi"
-	"github.com/free5gc/openapi/Nnrf_NFDiscovery"
-	"github.com/free5gc/openapi/Nnrf_NFManagement"
-	"github.com/free5gc/openapi/Npcf_PolicyAuthorization"
-	"github.com/free5gc/openapi/Nudr_DataRepository"
 	"github.com/free5gc/openapi/models"
+	Nnrf_NFDiscovery "github.com/free5gc/openapi/nrf/NFDiscovery"
+	Nnrf_NFManagement "github.com/free5gc/openapi/nrf/NFManagement"
+	Npcf_PolicyAuthorization "github.com/free5gc/openapi/pcf/PolicyAuthorization"
+	Nudr_DataRepository "github.com/free5gc/openapi/udr/DataRepository"
 )
 
-type nef interface {
-	app.App
+var consumer *Consumer
 
-	Context() *nef_context.NefContext
-	Config() *factory.Config
+type ConsumerNef interface {
+	app.App
 }
 
 type Consumer struct {
-	nef
+	ConsumerNef
 
 	// consumer services
 	*nnrfService
@@ -31,9 +28,9 @@ type Consumer struct {
 	*nudrService
 }
 
-func NewConsumer(nef nef) (*Consumer, error) {
+func NewConsumer(nef ConsumerNef) (*Consumer, error) {
 	c := &Consumer{
-		nef: nef,
+		ConsumerNef: nef,
 	}
 
 	c.nnrfService = &nnrfService{
@@ -51,6 +48,7 @@ func NewConsumer(nef nef) (*Consumer, error) {
 		consumer: c,
 		clients:  make(map[string]*Nudr_DataRepository.APIClient),
 	}
+	
 	return c, nil
 }
 

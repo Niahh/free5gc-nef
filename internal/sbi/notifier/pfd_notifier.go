@@ -3,16 +3,19 @@ package notifier
 import (
 	"context"
 	"errors"
+	nef_context "github.com/free5gc/nef/internal/context"
+	"github.com/free5gc/openapi"
 	"runtime/debug"
 	"strconv"
 	"sync"
 
 	"github.com/free5gc/nef/internal/logger"
-	"github.com/free5gc/openapi/Nnef_PFDmanagement"
 	"github.com/free5gc/openapi/models"
+	Nnef_PFDmanagement "github.com/free5gc/openapi/nef/PFDmanagement"
 )
 
 type PfdChangeNotifier struct {
+	nefCtx              *nef_context.NefContext
 	clientPfdManagement *Nnef_PFDmanagement.APIClient
 	mu                  sync.RWMutex
 
@@ -27,10 +30,11 @@ type PfdNotifyContext struct {
 	subIdToChangedAppIDs map[string][]string
 }
 
-func NewPfdChangeNotifier() (*PfdChangeNotifier, error) {
+func NewPfdChangeNotifier(_nefCtx *nef_context.NefContext) (*PfdChangeNotifier, error) {
 	return &PfdChangeNotifier{
 		appIdToSubIDs: make(map[string]map[string]bool),
 		subIdToURI:    make(map[string]string),
+		nefCtx:        _nefCtx,
 	}, nil
 }
 
@@ -127,12 +131,60 @@ func (nc *PfdNotifyContext) FlushNotifications() {
 				}
 			}()
 
-			_, _, err := nc.notifier.clientPfdManagement.NotificationApi.NotificationPost(
-				context.TODO(), nc.notifier.getSubURI(id), pfdChangeNotifications)
-			if err != nil {
-				logger.PFDManageLog.Fatal(err)
+			ctx, _, errCtx := nc.notifier.nefCtx.GetTokenCtx(
+				models.ServiceName_NPCF_POLICYAUTHORIZATION, models.NrfNfManagementNfType_PCF)
+			if errCtx != nil {
+				// TODO: Are we sure we want to force exit the application if notifications are not sent ?
+				logger.PFDManageLog.Fatal(errCtx)
+			}
+
+			pfdManagementNotifyReq := Nnef_PFDmanagement.NnefPFDmanagementNotifyRequest{
+				PfdChangeNotification: pfdChangeNotifications,
+			}
+
+			pd, errNotify := Notify(nc.notifier.clientPfdManagement.PFDSubscriptionsApi,
+				ctx, nc.notifier.getSubURI(id), &pfdManagementNotifyReq)
+
+			switch {
+			case pd != nil:
+				logger.PFDManageLog.Fatal(pd.Detail)
+			case errNotify != nil:
+				logger.PFDManageLog.Fatal(errNotify)
 			}
 		}(subID)
 		// TODO: Handle the response of notification properly
 	}
+}
+
+func Notify(
+	subsApiService *Nnef_PFDmanagement.PFDSubscriptionsApiService,
+	ctx context.Context,
+	subscriberUri string,
+	notifyReq *Nnef_PFDmanagement.NnefPFDmanagementNotifyRequest,
+) (*models.ProblemDetails, error) {
+	// TODO: Handle PfdChangeReports
+	_, errNotidy := subsApiService.NnefPFDmanagementNotify(
+		ctx, subscriberUri, notifyReq)
+
+	if errNotidy != nil {
+		switch apiErr := errNotidy.(type) {
+		// API error
+		case openapi.GenericOpenAPIError:
+			switch errorModel := apiErr.Model().(type) {
+			case Nnef_PFDmanagement.NnefPFDmanagementNotifyError:
+				// TODO: handle the 307/308 http status code
+				return &errorModel.ProblemDetails, nil
+			case error:
+				return openapi.ProblemDetailsSystemFailure(errorModel.Error()), nil
+			default:
+				return nil, openapi.ReportError("openapi error")
+			}
+		case error:
+			return openapi.ProblemDetailsSystemFailure(apiErr.Error()), nil
+		default:
+			return nil, openapi.ReportError("server no response")
+		}
+	}
+
+	return nil, nil
 }

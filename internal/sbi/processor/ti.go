@@ -7,7 +7,6 @@ import (
 	"github.com/free5gc/nef/pkg/factory"
 	"github.com/free5gc/openapi"
 	"github.com/free5gc/openapi/models"
-	"github.com/free5gc/openapi/models_nef"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
@@ -28,7 +27,7 @@ func (p *Processor) GetTrafficInfluenceSubscription(
 	af.Mu.RLock()
 	defer af.Mu.RUnlock()
 
-	var tiSubs []models_nef.TrafficInfluSub
+	var tiSubs []models.NefTrafficInfluSub
 	for _, sub := range af.Subs {
 		if sub.TiSub == nil {
 			continue
@@ -41,7 +40,7 @@ func (p *Processor) GetTrafficInfluenceSubscription(
 func (p *Processor) PostTrafficInfluenceSubscription(
 	c *gin.Context,
 	afID string,
-	tiSub *models_nef.TrafficInfluSub,
+	tiSub *models.NefTrafficInfluSub,
 ) {
 	logger.TrafInfluLog.Infof("PostTrafficInfluenceSubscription - afID[%s]", afID)
 
@@ -76,22 +75,40 @@ func (p *Processor) PostTrafficInfluenceSubscription(
 	if len(tiSub.Gpsi) > 0 || len(tiSub.Ipv4Addr) > 0 || len(tiSub.Ipv6Addr) > 0 {
 		// Single UE, sent to PCF
 		asc := p.convertTrafficInfluSubToAppSessionContext(tiSub, afSub.NotifCorreID)
-		rspStatus, rspBody, appSessID := p.Consumer().PostAppSessions(asc)
-		if rspStatus != http.StatusCreated {
-			c.JSON(rspStatus, rspBody)
+		appSessId, pd, err := p.Consumer().PostAppSessions(asc)
+		switch {
+		case pd != nil:
+			c.JSON(int(pd.Status), pd)
+			return
+		case err != nil:
+			problemDetails := &models.ProblemDetails{
+				Status: http.StatusInternalServerError,
+				Detail: "Query to PCF failed",
+			}
+			c.JSON(int(problemDetails.Status), problemDetails)
+			return
+		default:
+			afSub.AppSessID = appSessId
 		}
-		afSub.AppSessID = appSessID
 	} else if len(tiSub.ExternalGroupId) > 0 || tiSub.AnyUeInd {
 		// Group or any UE, sent to UDR
 		afSub.InfluID = uuid.New().String()
 		tiData := p.convertTrafficInfluSubToTrafficInfluData(tiSub, afSub.NotifCorreID)
-		rspStatus, rspBody := p.Consumer().AppDataInfluenceDataPut(afSub.InfluID, tiData)
-		if rspStatus != http.StatusOK &&
-			rspStatus != http.StatusCreated &&
-			rspStatus != http.StatusNoContent {
-			c.JSON(rspStatus, rspBody)
+
+		_, pd, err := p.Consumer().AppDataInfluenceDataPut(afSub.InfluID, tiData)
+		switch {
+		case pd != nil:
+			c.JSON(int(pd.Status), pd)
+			return
+		case err != nil:
+			problemDetails := &models.ProblemDetails{
+				Status: http.StatusInternalServerError,
+				Detail: "Query to UDR failed",
+			}
+			c.JSON(int(problemDetails.Status), problemDetails)
 			return
 		}
+
 	} else {
 		// Invalid case. Return Error
 		pd := openapi.ProblemDetailsMalformedReqSyntax("Not individual UE case, nor group case")
@@ -147,7 +164,7 @@ func (p *Processor) GetIndividualTrafficInfluenceSubscription(
 func (p *Processor) PutIndividualTrafficInfluenceSubscription(
 	c *gin.Context,
 	afID, subID string,
-	tiSub *models_nef.TrafficInfluSub,
+	tiSub *models.NefTrafficInfluSub,
 ) {
 	logger.TrafInfluLog.Infof("PutIndividualTrafficInfluenceSubscription - afID[%s], subID[%s]", afID, subID)
 
@@ -177,19 +194,37 @@ func (p *Processor) PutIndividualTrafficInfluenceSubscription(
 	afSub.TiSub = tiSub
 	if afSub.AppSessID != "" {
 		asc := p.convertTrafficInfluSubToAppSessionContext(tiSub, afSub.NotifCorreID)
-		rspStatus, rspBody, appSessID := p.Consumer().PostAppSessions(asc)
-		if rspStatus != http.StatusCreated {
-			c.JSON(rspStatus, rspBody)
+		appSessId, pd, err := p.Consumer().PostAppSessions(asc)
+
+		switch {
+		case pd != nil:
+			c.JSON(int(pd.Status), pd)
 			return
+		case err != nil:
+			problemDetails := &models.ProblemDetails{
+				Status: http.StatusInternalServerError,
+				Detail: "Query to PCF failed",
+			}
+			c.JSON(int(problemDetails.Status), problemDetails)
+			return
+		default:
+			afSub.AppSessID = appSessId
 		}
-		afSub.AppSessID = appSessID
+
 	} else if afSub.InfluID != "" {
 		tiData := p.convertTrafficInfluSubToTrafficInfluData(tiSub, afSub.NotifCorreID)
-		rspStatus, rspBody := p.Consumer().AppDataInfluenceDataPut(afSub.InfluID, tiData)
-		if rspStatus != http.StatusOK &&
-			rspStatus != http.StatusCreated &&
-			rspStatus != http.StatusNoContent {
-			c.JSON(rspStatus, rspBody)
+
+		_, pd, err := p.Consumer().AppDataInfluenceDataPut(afSub.InfluID, tiData)
+		switch {
+		case pd != nil:
+			c.JSON(int(pd.Status), pd)
+			return
+		case err != nil:
+			problemDetails := &models.ProblemDetails{
+				Status: http.StatusInternalServerError,
+				Detail: "Query to UDR failed",
+			}
+			c.JSON(int(problemDetails.Status), problemDetails)
 			return
 		}
 	} else {
@@ -204,7 +239,7 @@ func (p *Processor) PutIndividualTrafficInfluenceSubscription(
 func (p *Processor) PatchIndividualTrafficInfluenceSubscription(
 	c *gin.Context,
 	afID, subID string,
-	tiSubPatch *models_nef.TrafficInfluSubPatch,
+	tiSubPatch *models.NefTrafficInfluSubPatch,
 ) {
 	logger.TrafInfluLog.Infof("PatchIndividualTrafficInfluenceSubscription - afID[%s], subID[%s]", afID, subID)
 
@@ -227,18 +262,34 @@ func (p *Processor) PatchIndividualTrafficInfluenceSubscription(
 
 	if afSub.AppSessID != "" {
 		ascUpdateData := p.convertTrafficInfluSubPatchToAppSessionContextUpdateData(tiSubPatch)
-		rspStatus, rspBody := p.Consumer().PatchAppSession(afSub.AppSessID, ascUpdateData)
-		if rspStatus != http.StatusOK &&
-			rspStatus != http.StatusNoContent {
-			c.JSON(rspStatus, rspBody)
+
+		_, pd, err := p.Consumer().PatchAppSession(afSub.AppSessID, ascUpdateData)
+		switch {
+		case pd != nil:
+			c.JSON(int(pd.Status), pd)
+			return
+		case err != nil:
+			problemDetails := &models.ProblemDetails{
+				Status: http.StatusInternalServerError,
+				Detail: "Query to PCF failed",
+			}
+			c.JSON(int(problemDetails.Status), problemDetails)
 			return
 		}
 	} else if afSub.InfluID != "" {
 		tiDataPatch := p.convertTrafficInfluSubPatchToTrafficInfluDataPatch(tiSubPatch)
-		rspStatus, rspBody := p.Consumer().AppDataInfluenceDataPatch(afSub.InfluID, tiDataPatch)
-		if rspStatus != http.StatusOK &&
-			rspStatus != http.StatusNoContent {
-			c.JSON(rspStatus, rspBody)
+		pd, err := p.Consumer().AppDataInfluenceDataPatch(afSub.InfluID, tiDataPatch)
+
+		switch {
+		case pd != nil:
+			c.JSON(int(pd.Status), pd)
+			return
+		case err != nil:
+			problemDetails := &models.ProblemDetails{
+				Status: http.StatusInternalServerError,
+				Detail: "Query to UDR failed",
+			}
+			c.JSON(int(problemDetails.Status), problemDetails)
 			return
 		}
 	} else {
@@ -275,17 +326,32 @@ func (p *Processor) DeleteIndividualTrafficInfluenceSubscription(
 	}
 
 	if sub.AppSessID != "" {
-		rspStatus, rspBody := p.Consumer().DeleteAppSession(sub.AppSessID)
-		if rspStatus != http.StatusOK &&
-			rspStatus != http.StatusNoContent {
-			c.JSON(rspStatus, rspBody)
+		_, pd, err := p.Consumer().DeleteAppSession(sub.AppSessID)
+		switch {
+		case err != nil:
+			problemDetails := &models.ProblemDetails{
+				Status: http.StatusInternalServerError,
+				Detail: "Query to PCF failed",
+			}
+			c.JSON(int(problemDetails.Status), problemDetails)
+			return
+		case pd != nil:
+			c.JSON(int(pd.Status), pd)
 			return
 		}
 	} else {
-		rspStatus, rspBody := p.Consumer().AppDataInfluenceDataDelete(sub.InfluID)
-		if rspStatus != http.StatusOK &&
-			rspStatus != http.StatusNoContent {
-			c.JSON(rspStatus, rspBody)
+		pd, errInfluenceDataDelete := p.Consumer().AppDataInfluenceDataDelete(sub.InfluID)
+
+		switch {
+		case pd != nil:
+			c.JSON(int(pd.Status), pd)
+			return
+		case errInfluenceDataDelete != nil:
+			problemDetails := &models.ProblemDetails{
+				Status: http.StatusInternalServerError,
+				Detail: "Query to UDR failed",
+			}
+			c.JSON(int(problemDetails.Status), problemDetails)
 			return
 		}
 	}
@@ -294,7 +360,7 @@ func (p *Processor) DeleteIndividualTrafficInfluenceSubscription(
 }
 
 func validateTrafficInfluenceData(
-	tiSub *models_nef.TrafficInfluSub,
+	tiSub *models.NefTrafficInfluSub,
 ) *HandlerResponse {
 	// TS29.522: One of "afAppId", "trafficFilters" or "ethTrafficFilters" shall be included.
 	if tiSub.AfAppId == "" &&
@@ -335,7 +401,7 @@ func (p *Processor) genNotificationUri() string {
 }
 
 func (p *Processor) convertTrafficInfluSubToAppSessionContext(
-	tiSub *models_nef.TrafficInfluSub,
+	tiSub *models.NefTrafficInfluSub,
 	notifCorreID string,
 ) *models.AppSessionContext {
 	asc := &models.AppSessionContext{
@@ -368,7 +434,7 @@ func (p *Processor) convertTrafficInfluSubToAppSessionContext(
 }
 
 func (p *Processor) convertTrafficInfluSubPatchToAppSessionContextUpdateData(
-	tiSubPatch *models_nef.TrafficInfluSubPatch,
+	tiSubPatch *models.NefTrafficInfluSubPatch,
 ) *models.AppSessionContextUpdateData {
 	ascUpdate := &models.AppSessionContextUpdateData{
 		AfRoutReq: &models.AfRoutingRequirementRm{
@@ -381,7 +447,7 @@ func (p *Processor) convertTrafficInfluSubPatchToAppSessionContextUpdateData(
 }
 
 func (p *Processor) convertTrafficInfluSubToTrafficInfluData(
-	tiSub *models_nef.TrafficInfluSub,
+	tiSub *models.NefTrafficInfluSub,
 	notifCorreID string,
 ) *models.TrafficInfluData {
 	tiData := &models.TrafficInfluData{
@@ -414,7 +480,7 @@ func (p *Processor) convertTrafficInfluSubToTrafficInfluData(
 }
 
 func (p *Processor) convertTrafficInfluSubPatchToTrafficInfluDataPatch(
-	tiSubPatch *models_nef.TrafficInfluSubPatch,
+	tiSubPatch *models.NefTrafficInfluSubPatch,
 ) *models.TrafficInfluDataPatch {
 	tiDataPatch := &models.TrafficInfluDataPatch{
 		AppReloInd:        tiSubPatch.AppReloInd,

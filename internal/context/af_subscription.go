@@ -1,20 +1,20 @@
 package context
 
 import (
-	"github.com/free5gc/openapi/models_nef"
+	"github.com/free5gc/openapi/models"
 	"github.com/sirupsen/logrus"
 )
 
 type AfSubscription struct {
 	SubID        string
-	TiSub        *models_nef.TrafficInfluSub
+	TiSub        *models.NefTrafficInfluSub
 	AppSessID    string // use in single UE case
 	InfluID      string // use in multiple UE case
 	NotifCorreID string
 	Log          *logrus.Entry
 }
 
-func (s *AfSubscription) PatchTiSubData(tiSubPatch *models_nef.TrafficInfluSubPatch) {
+func (s *AfSubscription) PatchTiSubData(tiSubPatch *models.NefTrafficInfluSubPatch) {
 	s.TiSub.AppReloInd = tiSubPatch.AppReloInd
 	s.TiSub.TrafficFilters = tiSubPatch.TrafficFilters
 	s.TiSub.EthTrafficFilters = tiSubPatch.EthTrafficFilters

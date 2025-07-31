@@ -74,7 +74,7 @@ func NewServer(nef nef, tlsKeyLogPath string) (*Server, error) {
 		MaxAge:           CorsConfigMaxAge,
 	}))
 
-	bindAddr := s.nef.Config().SbiBindingAddr()
+	bindAddr := s.nef.Config().GetSbiBindingAddr()
 	logger.SBILog.Infof("Binding addr: [%s]", bindAddr)
 	var err error
 	if s.httpServer, err = httpwrapper.NewHttp2Server(bindAddr, tlsKeyLogPath, s.router); err != nil {
@@ -115,7 +115,7 @@ func (s *Server) startServer(wg *sync.WaitGroup) {
 
 	var err error
 
-	scheme := s.nef.Config().SbiScheme()
+	scheme := s.nef.Config().GetSbiScheme()
 	switch scheme {
 	case "http":
 		err = s.httpServer.ListenAndServe()

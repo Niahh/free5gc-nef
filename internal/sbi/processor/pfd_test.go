@@ -28,23 +28,23 @@ type nefTestApp struct {
 	proc     *Processor
 }
 
-func newTestApp(cfg *factory.Config, tlsKeyLogPath string) (*nefTestApp, error) {
+func newTestApp(cfg *factory.Config) (*nefTestApp, error) {
 	var err error
-	nef := &nefTestApp{cfg: cfg}
+	testNef := &nefTestApp{cfg: cfg}
 
-	if nef.nefCtx, err = nef_context.NewContext(nef); err != nil {
+	if testNef.nefCtx, err = nef_context.NewContext(testNef); err != nil {
 		return nil, err
 	}
-	if nef.consumer, err = consumer.NewConsumer(nef); err != nil {
+	if testNef.consumer, err = consumer.NewConsumer(testNef); err != nil {
 		return nil, err
 	}
-	if nef.notifier, err = notifier.NewNotifier(); err != nil {
+	if testNef.notifier, err = notifier.NewNotifier(); err != nil {
 		return nil, err
 	}
-	if nef.proc, err = NewProcessor(nef); err != nil {
+	if testNef.proc, err = NewProcessor(testNef); err != nil {
 		return nil, err
 	}
-	return nef, nil
+	return testNef, nil
 }
 
 func (a *nefTestApp) Config() *factory.Config {

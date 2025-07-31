@@ -2,7 +2,7 @@ package context
 
 import (
 	"fmt"
-	"github.com/free5gc/openapi/models_nef"
+	"github.com/free5gc/openapi/models"
 	"strconv"
 	"sync"
 
@@ -20,7 +20,7 @@ type AfData struct {
 	Log        *logrus.Entry
 }
 
-func (a *AfData) NewSub(numCorreID uint64, tiSub *models_nef.TrafficInfluSub) *AfSubscription {
+func (a *AfData) NewSub(numCorreID uint64, tiSub *models.NefTrafficInfluSub) *AfSubscription {
 	a.NumSubscID++
 	sub := AfSubscription{
 		NotifCorreID: strconv.FormatUint(numCorreID, 10),
