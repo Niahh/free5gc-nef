@@ -7,7 +7,6 @@ import (
 	"github.com/free5gc/nef/pkg/factory"
 	"github.com/free5gc/openapi"
 	"github.com/free5gc/openapi/models"
-	"github.com/free5gc/openapi/models_nef"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
@@ -28,7 +27,7 @@ func (p *Processor) GetTrafficInfluenceSubscription(
 	af.Mu.RLock()
 	defer af.Mu.RUnlock()
 
-	var tiSubs []models_nef.TrafficInfluSub
+	var tiSubs []models.NefTrafficInfluSub
 	for _, sub := range af.Subs {
 		if sub.TiSub == nil {
 			continue
@@ -41,7 +40,7 @@ func (p *Processor) GetTrafficInfluenceSubscription(
 func (p *Processor) PostTrafficInfluenceSubscription(
 	c *gin.Context,
 	afID string,
-	tiSub *models_nef.TrafficInfluSub,
+	tiSub *models.NefTrafficInfluSub,
 ) {
 	logger.TrafInfluLog.Infof("PostTrafficInfluenceSubscription - afID[%s]", afID)
 
@@ -79,6 +78,7 @@ func (p *Processor) PostTrafficInfluenceSubscription(
 		rspStatus, rspBody, appSessID := p.Consumer().PostAppSessions(asc)
 		if rspStatus != http.StatusCreated {
 			c.JSON(rspStatus, rspBody)
+			return
 		}
 		afSub.AppSessID = appSessID
 	} else if len(tiSub.ExternalGroupId) > 0 || tiSub.AnyUeInd {
@@ -115,6 +115,7 @@ func (p *Processor) PostTrafficInfluenceSubscription(
 			c.Header(hdrName, hdrValue)
 		}
 	}
+	af.Log.Infoln("Convert TI 3")
 	c.JSON(http.StatusCreated, tiSub)
 }
 
@@ -147,7 +148,7 @@ func (p *Processor) GetIndividualTrafficInfluenceSubscription(
 func (p *Processor) PutIndividualTrafficInfluenceSubscription(
 	c *gin.Context,
 	afID, subID string,
-	tiSub *models_nef.TrafficInfluSub,
+	tiSub *models.NefTrafficInfluSub,
 ) {
 	logger.TrafInfluLog.Infof("PutIndividualTrafficInfluenceSubscription - afID[%s], subID[%s]", afID, subID)
 
@@ -204,7 +205,7 @@ func (p *Processor) PutIndividualTrafficInfluenceSubscription(
 func (p *Processor) PatchIndividualTrafficInfluenceSubscription(
 	c *gin.Context,
 	afID, subID string,
-	tiSubPatch *models_nef.TrafficInfluSubPatch,
+	tiSubPatch *models.NefTrafficInfluSubPatch,
 ) {
 	logger.TrafInfluLog.Infof("PatchIndividualTrafficInfluenceSubscription - afID[%s], subID[%s]", afID, subID)
 
@@ -294,7 +295,7 @@ func (p *Processor) DeleteIndividualTrafficInfluenceSubscription(
 }
 
 func validateTrafficInfluenceData(
-	tiSub *models_nef.TrafficInfluSub,
+	tiSub *models.NefTrafficInfluSub,
 ) *HandlerResponse {
 	// TS29.522: One of "afAppId", "trafficFilters" or "ethTrafficFilters" shall be included.
 	if tiSub.AfAppId == "" &&
@@ -335,7 +336,7 @@ func (p *Processor) genNotificationUri() string {
 }
 
 func (p *Processor) convertTrafficInfluSubToAppSessionContext(
-	tiSub *models_nef.TrafficInfluSub,
+	tiSub *models.NefTrafficInfluSub,
 	notifCorreID string,
 ) *models.AppSessionContext {
 	asc := &models.AppSessionContext{
@@ -368,7 +369,7 @@ func (p *Processor) convertTrafficInfluSubToAppSessionContext(
 }
 
 func (p *Processor) convertTrafficInfluSubPatchToAppSessionContextUpdateData(
-	tiSubPatch *models_nef.TrafficInfluSubPatch,
+	tiSubPatch *models.NefTrafficInfluSubPatch,
 ) *models.AppSessionContextUpdateData {
 	ascUpdate := &models.AppSessionContextUpdateData{
 		AfRoutReq: &models.AfRoutingRequirementRm{
@@ -381,7 +382,7 @@ func (p *Processor) convertTrafficInfluSubPatchToAppSessionContextUpdateData(
 }
 
 func (p *Processor) convertTrafficInfluSubToTrafficInfluData(
-	tiSub *models_nef.TrafficInfluSub,
+	tiSub *models.NefTrafficInfluSub,
 	notifCorreID string,
 ) *models.TrafficInfluData {
 	tiData := &models.TrafficInfluData{
@@ -414,7 +415,7 @@ func (p *Processor) convertTrafficInfluSubToTrafficInfluData(
 }
 
 func (p *Processor) convertTrafficInfluSubPatchToTrafficInfluDataPatch(
-	tiSubPatch *models_nef.TrafficInfluSubPatch,
+	tiSubPatch *models.NefTrafficInfluSubPatch,
 ) *models.TrafficInfluDataPatch {
 	tiDataPatch := &models.TrafficInfluDataPatch{
 		AppReloInd:        tiSubPatch.AppReloInd,

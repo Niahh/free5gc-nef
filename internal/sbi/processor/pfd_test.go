@@ -1239,7 +1239,7 @@ func TestPatchModifyPfdData(t *testing.T) {
 }
 
 func initNRFNfmStub() {
-	nrfRegisterInstanceRsp := models.NfProfile{
+	nrfRegisterInstanceRsp := models.NrfNfDiscoveryNfProfile{
 		NfInstanceId: "nef-pfd-unit-testing",
 	}
 	gock.New("http://127.0.0.10:8000/nnrf-nfm/v1").
@@ -1254,7 +1254,7 @@ func initNRFNfmStub() {
 func initNRFDiscUDRStub() {
 	searchResult := &models.SearchResult{
 		ValidityPeriod: 100,
-		NfInstances: []models.NfProfile{
+		NfInstances: []models.NrfNfDiscoveryNfProfile{
 			{
 				NfInstanceId: "nef-unit-testing",
 				NfType:       "UDR",
@@ -1264,11 +1264,11 @@ func initNRFDiscUDRStub() {
 						"SUBSCRIPTION",
 					},
 				},
-				NfServices: &[]models.NfService{
+				NfServices: []models.NrfNfDiscoveryNfService{
 					{
 						ServiceInstanceId: "datarepository",
 						ServiceName:       "nudr-dr",
-						Versions: &[]models.NfServiceVersion{
+						Versions: []models.NfServiceVersion{
 							{
 								ApiVersionInUri: "v1",
 								ApiFullVersion:  "1.0.0",
@@ -1276,7 +1276,7 @@ func initNRFDiscUDRStub() {
 						},
 						Scheme:          "http",
 						NfServiceStatus: "REGISTERED",
-						IpEndPoints: &[]models.IpEndPoint{
+						IpEndPoints: []models.IpEndPoint{
 							{
 								Ipv4Address: "127.0.0.4",
 								Transport:   "TCP",
@@ -1302,7 +1302,7 @@ func initNRFDiscUDRStub() {
 func initNRFDiscPCFStub() {
 	searchResult := &models.SearchResult{
 		ValidityPeriod: 100,
-		NfInstances: []models.NfProfile{
+		NfInstances: []models.NrfNfDiscoveryNfProfile{
 			{
 				NfInstanceId: "nef-unit-testing",
 				NfType:       "PCF",
@@ -1316,11 +1316,11 @@ func initNRFDiscPCFStub() {
 						"internet",
 					},
 				},
-				NfServices: &[]models.NfService{
+				NfServices: []models.NrfNfDiscoveryNfService{
 					{
 						ServiceInstanceId: "1",
 						ServiceName:       "npcf-policyauthorization",
-						Versions: &[]models.NfServiceVersion{
+						Versions: []models.NfServiceVersion{
 							{
 								ApiVersionInUri: "v1",
 								ApiFullVersion:  "1.0.0",
@@ -1328,7 +1328,7 @@ func initNRFDiscPCFStub() {
 						},
 						Scheme:          "http",
 						NfServiceStatus: "REGISTERED",
-						IpEndPoints: &[]models.IpEndPoint{
+						IpEndPoints: []models.IpEndPoint{
 							{
 								Ipv4Address: "127.0.0.7",
 								Transport:   "TCP",

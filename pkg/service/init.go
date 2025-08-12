@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"runtime/debug"
@@ -143,6 +144,18 @@ func (a *NefApp) SetReportCaller(reportCaller bool) {
 	logger.Log.SetReportCaller(reportCaller)
 }
 
+func (a *NefApp) registerToNrf(ctx context.Context) error {
+	nefContext := a.nefCtx
+
+	_, NfInstID, err := a.consumer.RegisterNFInstance(ctx, nefContext)
+	if err != nil {
+		return fmt.Errorf("failed to register NSSF to NRF: %s", err.Error())
+	}
+	a.nefCtx.SetNfInstID(NfInstID)
+
+	return nil
+}
+
 func (a *NefApp) Start() error {
 	a.wg.Add(1)
 	/* Go Routine is spawned here for listening for cancellation event on
@@ -153,8 +166,11 @@ func (a *NefApp) Start() error {
 		return err
 	}
 
-	if err := a.consumer.RegisterNFInstance(a.ctx); err != nil {
-		return err
+	err := a.registerToNrf(a.ctx)
+	if err != nil {
+		logger.MainLog.Errorf("register to NRF failed: %+v", err)
+	} else {
+		logger.MainLog.Infoln("register to NRF successfully")
 	}
 
 	a.WaitRoutineStopped()
@@ -183,7 +199,7 @@ func (a *NefApp) terminateProcedure() {
 	}
 
 	// deregister with NRF
-	if err := a.consumer.DeregisterNFInstance(); err != nil {
+	if _, err := a.consumer.DeregisterNFInstance(); err != nil {
 		logger.MainLog.Error(err)
 	} else {
 		logger.MainLog.Infof("Deregister from NRF successfully")

@@ -352,7 +352,7 @@ func (p *Processor) GetIndividualApplicationPFDManagement(
 		c.JSON(rspCode, rspBody)
 		return
 	}
-	pfdData := convertPfdDataForAppToPfdData(rspBody.(*models.PfdDataForApp))
+	pfdData := convertPfdDataForAppToPfdData(rspBody.(*models.PfdDataForAppExt))
 	pfdData.Self = p.genPfdDataURI(scsAsID, transID, appID)
 
 	c.JSON(http.StatusOK, pfdData)
@@ -514,7 +514,7 @@ func (p *Processor) PatchIndividualApplicationPFDManagement(
 		return
 	}
 
-	oldPfdData := convertPfdDataForAppToPfdData(rspBody.(*models.PfdDataForApp))
+	oldPfdData := convertPfdDataForAppToPfdData(rspBody.(*models.PfdDataForAppExt))
 	if pd := patchModifyPfdData(oldPfdData, pfdData); pd != nil {
 		c.JSON(int(pd.Status), pd)
 		return
@@ -549,7 +549,7 @@ func (p *Processor) buildPfdManagement(
 	if rspCode != http.StatusOK {
 		return nil, &HandlerResponse{rspCode, nil, rspBody}
 	}
-	for _, pfdDataForApp := range *(rspBody.(*[]models.PfdDataForApp)) {
+	for _, pfdDataForApp := range *(rspBody.(*[]models.PfdDataForAppExt)) {
 		pfdData := convertPfdDataForAppToPfdData(&pfdDataForApp)
 		pfdData.Self = p.genPfdDataURI(afID, transID, pfdData.ExternalAppId)
 		pfdMng.PfdDatas[pfdData.ExternalAppId] = *pfdData
@@ -557,7 +557,7 @@ func (p *Processor) buildPfdManagement(
 	return pfdMng, nil
 }
 
-func (p *Processor) storePfdDataToUDR(appID string, pfdDataForApp *models.PfdDataForApp) *models.PfdReport {
+func (p *Processor) storePfdDataToUDR(appID string, pfdDataForApp *models.PfdDataForAppExt) *models.PfdReport {
 	rspCode, _ := p.Consumer().AppDataPfdsAppIdPut(appID, pfdDataForApp)
 	if rspCode != http.StatusCreated && rspCode != http.StatusOK {
 		return &models.PfdReport{
@@ -596,7 +596,7 @@ func patchModifyPfdData(oldPfdData, newPfdData *models.PfdData) *models.ProblemD
 	return nil
 }
 
-func convertPfdDataForAppToPfdData(pfdDataForApp *models.PfdDataForApp) *models.PfdData {
+func convertPfdDataForAppToPfdData(pfdDataForApp *models.PfdDataForAppExt) *models.PfdData {
 	pfdData := &models.PfdData{
 		ExternalAppId: pfdDataForApp.ApplicationId,
 		Pfds:          make(map[string]models.Pfd, len(pfdDataForApp.Pfds)),
@@ -612,8 +612,8 @@ func convertPfdDataForAppToPfdData(pfdDataForApp *models.PfdDataForApp) *models.
 	return pfdData
 }
 
-func convertPfdDataToPfdDataForApp(pfdData *models.PfdData) *models.PfdDataForApp {
-	pfdDataForApp := &models.PfdDataForApp{
+func convertPfdDataToPfdDataForApp(pfdData *models.PfdData) *models.PfdDataForAppExt {
+	pfdDataForApp := &models.PfdDataForAppExt{
 		ApplicationId: pfdData.ExternalAppId,
 	}
 	for _, pfd := range pfdData.Pfds {
